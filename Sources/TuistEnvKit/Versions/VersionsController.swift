@@ -1,7 +1,7 @@
-import Basic
 import Foundation
-import SPMUtility
-import TuistCore
+import TSCBasic
+import struct TSCUtility.Version
+import TuistSupport
 
 protocol VersionsControlling: AnyObject {
     typealias Installation = (AbsolutePath) throws -> Void
@@ -23,44 +23,23 @@ enum InstalledVersion: CustomStringConvertible, Equatable {
         case let .semver(value): return value.description
         }
     }
-
-    static func == (lhs: InstalledVersion, rhs: InstalledVersion) -> Bool {
-        switch (lhs, rhs) {
-        case let (.semver(lhsVersion), .semver(rhsVersion)):
-            return lhsVersion == rhsVersion
-        case let (.reference(lhsRef), .reference(rhsRef)):
-            return lhsRef == rhsRef
-        default:
-            return false
-        }
-    }
 }
 
 class VersionsController: VersionsControlling {
-    // MARK: - Attributes
-
-    let environmentController: EnvironmentControlling
-
-    // MARK: - Init
-
-    init(environmentController: EnvironmentControlling = EnvironmentController()) {
-        self.environmentController = environmentController
-    }
-
     // MARK: - VersionsControlling
 
     func install(version: String, installation: Installation) throws {
-        let tmpDir = try TemporaryDirectory(removeTreeOnDeinit: true)
+        try withTemporaryDirectory { tmpDir in
+            try installation(tmpDir)
 
-        try installation(tmpDir.path)
-
-        // Copy only if there's file in the folder
-        if !tmpDir.path.glob("*").isEmpty {
-            let dstPath = path(version: version)
-            if FileHandler.shared.exists(dstPath) {
-                try FileHandler.shared.delete(dstPath)
+            // Copy only if there's file in the folder
+            if !tmpDir.glob("*").isEmpty {
+                let dstPath = path(version: version)
+                if FileHandler.shared.exists(dstPath) {
+                    try FileHandler.shared.delete(dstPath)
+                }
+                try FileHandler.shared.copy(from: tmpDir, to: dstPath)
             }
-            try FileHandler.shared.copy(from: tmpDir.path, to: dstPath)
         }
     }
 
@@ -72,11 +51,11 @@ class VersionsController: VersionsControlling {
     }
 
     func path(version: String) -> AbsolutePath {
-        return environmentController.versionsDirectory.appending(component: version)
+        Environment.shared.versionsDirectory.appending(component: version)
     }
 
     func versions() -> [InstalledVersion] {
-        return environmentController.versionsDirectory.glob("*").map { path in
+        Environment.shared.versionsDirectory.glob("*").map { path in
             let versionStringValue = path.components.last!
             if let version = Version(string: versionStringValue) {
                 return InstalledVersion.semver(version)
@@ -87,11 +66,11 @@ class VersionsController: VersionsControlling {
     }
 
     func semverVersions() -> [Version] {
-        return versions().compactMap { version in
+        versions().compactMap { version in
             if case let InstalledVersion.semver(semver) = version {
                 return semver
             }
             return nil
-        }
+        }.sorted()
     }
 }

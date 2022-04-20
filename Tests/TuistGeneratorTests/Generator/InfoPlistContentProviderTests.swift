@@ -1,6 +1,9 @@
 import Foundation
+import TuistCore
+import TuistCoreTesting
+import TuistGraph
+import TuistGraphTesting
 import XCTest
-
 @testable import TuistGenerator
 
 final class InfoPlistContentProviderTests: XCTestCase {
@@ -11,42 +14,46 @@ final class InfoPlistContentProviderTests: XCTestCase {
         subject = InfoPlistContentProvider()
     }
 
+    override func tearDown() {
+        subject = nil
+        super.tearDown()
+    }
+
     func test_content_wheniOSApp() {
         // Given
         let target = Target.test(platform: .iOS, product: .app)
 
         // When
-        let got = subject.content(target: target, extendedWith: ["ExtraAttribute": "Value"])
+        let got = subject.content(
+            project: .empty(),
+            target: target,
+            extendedWith: ["ExtraAttribute": "Value"]
+        )
 
         // Then
         assertEqual(got, [
-            "UISupportedInterfaceOrientations":
-                ["UIInterfaceOrientationPortrait",
-                 "UIInterfaceOrientationLandscapeLeft",
-                 "UIInterfaceOrientationLandscapeRight"],
-            "ExtraAttribute": "Value",
+            "CFBundleName": "$(PRODUCT_NAME)",
             "CFBundleIdentifier": "$(PRODUCT_BUNDLE_IDENTIFIER)",
-            "CFBundleIconFile": "",
-            "CFBundleVersion": "1",
             "UIRequiredDeviceCapabilities": ["armv7"],
-            "CFBundleDevelopmentRegion": "$(DEVELOPMENT_LANGUAGE)",
-            "CFBundlePackageType": "APPL",
-            "CFBundleExecutable": "$(EXECUTABLE_NAME)",
-            "UIMainStoryboardFile": "Main",
+            "UISupportedInterfaceOrientations": [
+                "UIInterfaceOrientationPortrait",
+                "UIInterfaceOrientationLandscapeLeft",
+                "UIInterfaceOrientationLandscapeRight",
+            ],
             "CFBundleShortVersionString": "1.0",
             "LSRequiresIPhoneOS": true,
-            "CFBundleInfoDictionaryVersion": "6.0",
-            "CFBundleName": "$(PRODUCT_NAME)",
-            "NSMainStoryboardFile": "Main",
+            "CFBundleDevelopmentRegion": "$(DEVELOPMENT_LANGUAGE)",
+            "CFBundlePackageType": "APPL",
             "UISupportedInterfaceOrientations~ipad": [
                 "UIInterfaceOrientationPortrait",
                 "UIInterfaceOrientationPortraitUpsideDown",
                 "UIInterfaceOrientationLandscapeLeft",
                 "UIInterfaceOrientationLandscapeRight",
             ],
-            "UILaunchStoryboardName": "LaunchScreen",
-            "LSMinimumSystemVersion": "$(MACOSX_DEPLOYMENT_TARGET)",
-            "NSPrincipalClass": "NSApplication",
+            "CFBundleVersion": "1",
+            "ExtraAttribute": "Value",
+            "CFBundleExecutable": "$(EXECUTABLE_NAME)",
+            "CFBundleInfoDictionaryVersion": "6.0",
         ])
     }
 
@@ -55,20 +62,28 @@ final class InfoPlistContentProviderTests: XCTestCase {
         let target = Target.test(platform: .macOS, product: .app)
 
         // When
-        let got = subject.content(target: target, extendedWith: ["ExtraAttribute": "Value"])
+        let got = subject.content(
+            project: .empty(),
+            target: target,
+            extendedWith: ["ExtraAttribute": "Value"]
+        )
 
         // Then
         assertEqual(got, [
-            "CFBundleShortVersionString": "1.0",
-            "CFBundleExecutable": "$(EXECUTABLE_NAME)",
+            "CFBundleIconFile": "",
             "CFBundleDevelopmentRegion": "$(DEVELOPMENT_LANGUAGE)",
-            "CFBundleIdentifier": "$(PRODUCT_BUNDLE_IDENTIFIER)",
+            "CFBundlePackageType": "APPL",
+            "NSHumanReadableCopyright": "Copyright ©. All rights reserved.",
+            "NSMainStoryboardFile": "Main",
+            "NSPrincipalClass": "NSApplication",
+            "CFBundleShortVersionString": "1.0",
             "CFBundleName": "$(PRODUCT_NAME)",
             "CFBundleInfoDictionaryVersion": "6.0",
-            "NSHumanReadableCopyright": "Copyright ©. All rights reserved.",
-            "ExtraAttribute": "Value",
-            "CFBundlePackageType": "APPL",
             "CFBundleVersion": "1",
+            "CFBundleExecutable": "$(EXECUTABLE_NAME)",
+            "CFBundleIdentifier": "$(PRODUCT_BUNDLE_IDENTIFIER)",
+            "ExtraAttribute": "Value",
+            "LSMinimumSystemVersion": "$(MACOSX_DEPLOYMENT_TARGET)",
         ])
     }
 
@@ -77,7 +92,11 @@ final class InfoPlistContentProviderTests: XCTestCase {
         let target = Target.test(platform: .macOS, product: .framework)
 
         // When
-        let got = subject.content(target: target, extendedWith: ["ExtraAttribute": "Value"])
+        let got = subject.content(
+            project: .empty(),
+            target: target,
+            extendedWith: ["ExtraAttribute": "Value"]
+        )
 
         // Then
         assertEqual(got, [
@@ -99,7 +118,11 @@ final class InfoPlistContentProviderTests: XCTestCase {
         let target = Target.test(platform: .macOS, product: .staticLibrary)
 
         // When
-        let got = subject.content(target: target, extendedWith: ["ExtraAttribute": "Value"])
+        let got = subject.content(
+            project: .empty(),
+            target: target,
+            extendedWith: ["ExtraAttribute": "Value"]
+        )
 
         // Then
         XCTAssertNil(got)
@@ -110,45 +133,197 @@ final class InfoPlistContentProviderTests: XCTestCase {
         let target = Target.test(platform: .macOS, product: .dynamicLibrary)
 
         // When
-        let got = subject.content(target: target, extendedWith: ["ExtraAttribute": "Value"])
+        let got = subject.content(
+            project: .empty(),
+            target: target,
+            extendedWith: ["ExtraAttribute": "Value"]
+        )
 
         // Then
         XCTAssertNil(got)
     }
 
-    func test_contentPackageType() {
-        assertPackageType(subject.content(target: .test(product: .app), extendedWith: [:]), "APPL")
-        assertPackageType(subject.content(target: .test(product: .unitTests), extendedWith: [:]), "BNDL")
-        assertPackageType(subject.content(target: .test(product: .uiTests), extendedWith: [:]), "BNDL")
-        assertPackageType(subject.content(target: .test(product: .bundle), extendedWith: [:]), "BNDL")
-        assertPackageType(subject.content(target: .test(product: .framework), extendedWith: [:]), "FMWK")
-        assertPackageType(subject.content(target: .test(product: .staticFramework), extendedWith: [:]), "FMWK")
+    func test_content_wheniOSResourceBundle() {
+        // Given
+        let target = Target.test(platform: .iOS, product: .bundle)
+
+        // When
+        let got = subject.content(
+            project: .empty(),
+            target: target,
+            extendedWith: ["ExtraAttribute": "Value"]
+        )
+
+        // Then
+        assertEqual(got, [
+            "CFBundlePackageType": "BNDL",
+            "ExtraAttribute": "Value",
+            "CFBundleDevelopmentRegion": "$(DEVELOPMENT_LANGUAGE)",
+            "CFBundleIdentifier": "$(PRODUCT_BUNDLE_IDENTIFIER)",
+            "CFBundleShortVersionString": "1.0",
+            "CFBundleVersion": "1",
+            "CFBundleInfoDictionaryVersion": "6.0",
+            "CFBundleName": "$(PRODUCT_NAME)",
+        ])
     }
 
-    fileprivate func assertPackageType(_ lhs: [String: Any]?,
-                                       _ packageType: String?,
-                                       file: StaticString = #file,
-                                       line: UInt = #line) {
+    func test_contentPackageType() {
+        func content(for target: Target) -> [String: Any]? {
+            subject.content(
+                project: .empty(),
+                target: target,
+                extendedWith: [:]
+            )
+        }
+
+        assertPackageType(content(for: .test(product: .app)), "APPL")
+        assertPackageType(content(for: .test(product: .unitTests)), "BNDL")
+        assertPackageType(content(for: .test(product: .uiTests)), "BNDL")
+        assertPackageType(content(for: .test(product: .bundle)), "BNDL")
+        assertPackageType(content(for: .test(product: .framework)), "FMWK")
+        assertPackageType(content(for: .test(product: .staticFramework)), "FMWK")
+        assertPackageType(content(for: .test(product: .watch2App)), "$(PRODUCT_BUNDLE_PACKAGE_TYPE)")
+        assertPackageType(content(for: .test(product: .appClip)), "APPL")
+    }
+
+    func test_content_whenWatchOSApp() {
+        // Given
+        let watchApp = Target.test(
+            name: "MyWatchApp",
+            platform: .watchOS,
+            product: .watch2App
+        )
+        let app = Target.test(
+            platform: .iOS,
+            product: .app,
+            bundleId: "io.tuist.my.app.id",
+            dependencies: [
+                .target(name: watchApp.name),
+            ]
+        )
+        let project = Project.test(targets: [
+            app,
+            watchApp,
+        ])
+
+        // When
+        let got = subject.content(
+            project: project,
+            target: watchApp,
+            extendedWith: [
+                "ExtraAttribute": "Value",
+            ]
+        )
+
+        // Then
+        assertEqual(got, [
+            "CFBundleName": "$(PRODUCT_NAME)",
+            "CFBundleShortVersionString": "1.0",
+            "CFBundlePackageType": "$(PRODUCT_BUNDLE_PACKAGE_TYPE)",
+            "UISupportedInterfaceOrientations": [
+                "UIInterfaceOrientationPortrait",
+                "UIInterfaceOrientationPortraitUpsideDown",
+            ],
+            "CFBundleIdentifier": "$(PRODUCT_BUNDLE_IDENTIFIER)",
+            "CFBundleInfoDictionaryVersion": "6.0",
+            "CFBundleVersion": "1",
+            "CFBundleDevelopmentRegion": "$(DEVELOPMENT_LANGUAGE)",
+            "CFBundleExecutable": "$(EXECUTABLE_NAME)",
+            "CFBundleDisplayName": "MyWatchApp",
+            "WKWatchKitApp": true,
+            "WKCompanionAppBundleIdentifier": "io.tuist.my.app.id",
+            "ExtraAttribute": "Value",
+
+        ])
+    }
+
+    func test_content_whenWatchOSAppExtension() {
+        // Given
+        let watchAppExtension = Target.test(
+            name: "MyWatchAppExtension",
+            platform: .watchOS,
+            product: .watch2Extension
+        )
+        let watchApp = Target.test(
+            platform: .watchOS,
+            product: .watch2App,
+            bundleId: "io.tuist.my.app.id.mywatchapp",
+            dependencies: [
+                .target(name: watchAppExtension.name),
+            ]
+        )
+        let project = Project.test(targets: [
+            watchApp,
+            watchAppExtension,
+        ])
+
+        // When
+        let got = subject.content(
+            project: project,
+            target: watchAppExtension,
+            extendedWith: [
+                "ExtraAttribute": "Value",
+            ]
+        )
+
+        // Then
+        assertEqual(got, [
+            "CFBundleName": "$(PRODUCT_NAME)",
+            "CFBundleShortVersionString": "1.0",
+            "CFBundlePackageType": "$(PRODUCT_BUNDLE_PACKAGE_TYPE)",
+            "CFBundleIdentifier": "$(PRODUCT_BUNDLE_IDENTIFIER)",
+            "CFBundleInfoDictionaryVersion": "6.0",
+            "CFBundleVersion": "1",
+            "CFBundleDevelopmentRegion": "$(DEVELOPMENT_LANGUAGE)",
+            "CFBundleExecutable": "$(EXECUTABLE_NAME)",
+            "CFBundleDisplayName": "MyWatchAppExtension",
+            "NSExtension": [
+                "NSExtensionAttributes": [
+                    "WKAppBundleIdentifier": "io.tuist.my.app.id.mywatchapp",
+                ],
+                "NSExtensionPointIdentifier": "com.apple.watchkit",
+            ],
+            "WKExtensionDelegateClassName": "$(PRODUCT_MODULE_NAME).ExtensionDelegate",
+            "ExtraAttribute": "Value",
+        ])
+    }
+
+    // MARK: - Helpers
+
+    fileprivate func assertPackageType(
+        _ lhs: [String: Any]?,
+        _ packageType: String?,
+        file: StaticString = #file,
+        line: UInt = #line
+    ) {
         let value = lhs?["CFBundlePackageType"] as? String
 
         if let packageType = packageType {
-            XCTAssertEqual(value, packageType, "Expected package type \(packageType) but got \(value ?? "")", file: file, line: line)
+            XCTAssertEqual(
+                value,
+                packageType,
+                "Expected package type \(packageType) but got \(value ?? "")",
+                file: file,
+                line: line
+            )
         } else {
             XCTAssertNil(value, "Expected package type to be nil and got \(value ?? "")", file: file, line: line)
         }
     }
 
-    fileprivate func assertEqual(_ lhs: [String: Any]?,
-                                 _ rhs: [String: Any],
-                                 file: StaticString = #file,
-                                 line: UInt = #line) {
+    fileprivate func assertEqual(
+        _ lhs: [String: Any]?,
+        _ rhs: [String: Any],
+        file: StaticString = #file,
+        line: UInt = #line
+    ) {
         let lhsNSDictionary = NSDictionary(dictionary: lhs ?? [:])
         let rhsNSDictionary = NSDictionary(dictionary: rhs)
         let message = """
-        
+
         The dictionary:
         \(lhs ?? [:])
-        
+
         Is not equal to the expected dictionary:
         \(rhs)
         """

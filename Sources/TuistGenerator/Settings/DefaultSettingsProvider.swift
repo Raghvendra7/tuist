@@ -1,13 +1,21 @@
 import Foundation
+import struct TSCUtility.Version
 import TuistCore
+import TuistGraph
+import TuistSupport
 import XcodeProj
 
 public protocol DefaultSettingsProviding {
-    func projectSettings(project: Project,
-                         buildConfiguration: BuildConfiguration) throws -> [String: SettingValue]
+    func projectSettings(
+        project: Project,
+        buildConfiguration: BuildConfiguration
+    ) throws -> SettingsDictionary
 
-    func targetSettings(target: Target,
-                        buildConfiguration: BuildConfiguration) throws -> [String: SettingValue]
+    func targetSettings(
+        target: Target,
+        project: Project,
+        buildConfiguration: BuildConfiguration
+    ) throws -> SettingsDictionary
 }
 
 public final class DefaultSettingsProvider: DefaultSettingsProviding {
@@ -33,13 +41,13 @@ public final class DefaultSettingsProvider: DefaultSettingsProviding {
         "GCC_C_LANGUAGE_STANDARD",
         "GCC_NO_COMMON_BLOCKS",
         "PRODUCT_NAME",
+        "VALIDATE_PRODUCT",
     ]
 
     private static let essentialTargetSettings: Set<String> = [
         "SDKROOT",
         "CODE_SIGN_IDENTITY",
         "LD_RUNPATH_SEARCH_PATHS",
-        "VALIDATE_PRODUCT",
         "SWIFT_OPTIMIZATION_LEVEL",
         "SWIFT_ACTIVE_COMPILATION_CONDITIONS",
         "CURRENT_PROJECT_VERSION",
@@ -57,63 +65,126 @@ public final class DefaultSettingsProvider: DefaultSettingsProviding {
         "COMBINE_HIDPI_IMAGES",
         "ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES",
         "WRAPPER_EXTENSION",
+        "SWIFT_VERSION",
     ]
 
-    public init() {}
+    /// Key is `Version` which describes from which version of Xcode are values available for
+    private static let xcodeVersionSpecificSettings: [Version: Set<String>] = [
+        Version(11, 0, 0): [
+            "ENABLE_PREVIEWS",
+        ],
+    ]
+
+    private let system: Systeming
+    private let xcodeController: XcodeControlling
+
+    public convenience init() {
+        self.init(
+            system: System.shared,
+            xcodeController: XcodeController.shared
+        )
+    }
+
+    public init(
+        system: Systeming,
+        xcodeController: XcodeControlling
+    ) {
+        self.system = system
+        self.xcodeController = xcodeController
+    }
 
     // MARK: - DefaultSettingsProviding
 
-    public func projectSettings(project: Project,
-                                buildConfiguration: BuildConfiguration) throws -> [String: SettingValue] {
+    public func projectSettings(
+        project: Project,
+        buildConfiguration: BuildConfiguration
+    ) throws -> SettingsDictionary {
         let settingsHelper = SettingsHelper()
         let defaultSettings = project.settings.defaultSettings
         let variant = settingsHelper.variant(buildConfiguration)
         let projectDefaultAll = try BuildSettingsProvider.projectDefault(variant: .all).toSettings()
         let projectDefaultVariant = try BuildSettingsProvider.projectDefault(variant: variant).toSettings()
-        let filter = createFilter(defaultSettings: defaultSettings,
-                                  essentialKeys: DefaultSettingsProvider.essentialProjectSettings)
+        let filter = try createFilter(
+            defaultSettings: defaultSettings,
+            essentialKeys: DefaultSettingsProvider.essentialProjectSettings
+        )
 
-        var settings: [String: SettingValue] = [:]
+        var settings: SettingsDictionary = [:]
         settingsHelper.extend(buildSettings: &settings, with: projectDefaultAll)
         settingsHelper.extend(buildSettings: &settings, with: projectDefaultVariant)
         return settings.filter(filter)
     }
 
-    public func targetSettings(target: Target,
-                               buildConfiguration: BuildConfiguration) throws -> [String: SettingValue] {
+    public func targetSettings(
+        target: Target,
+        project: Project,
+        buildConfiguration: BuildConfiguration
+    ) throws -> SettingsDictionary {
         let settingsHelper = SettingsHelper()
-        let defaultSettings = target.settings?.defaultSettings ?? .recommended
+        let defaultSettings = target.settings?.defaultSettings ?? project.settings.defaultSettings
         let product = settingsHelper.settingsProviderProduct(target)
         let platform = settingsHelper.settingsProviderPlatform(target)
         let variant = settingsHelper.variant(buildConfiguration)
-        let targetDefaultAll = try BuildSettingsProvider.targetDefault(variant: .all,
-                                                                       platform: platform,
-                                                                       product: product,
-                                                                       swift: true).toSettings()
-        let targetDefaultVariant = try BuildSettingsProvider.targetDefault(variant: variant,
-                                                                           platform: platform,
-                                                                           product: product,
-                                                                           swift: true).toSettings()
-        let filter = createFilter(defaultSettings: defaultSettings,
-                                  essentialKeys: DefaultSettingsProvider.essentialTargetSettings)
+        let targetDefaultAll = try BuildSettingsProvider.targetDefault(
+            variant: .all,
+            platform: platform,
+            product: product,
+            swift: true
+        ).toSettings()
+        let targetDefaultVariant = try BuildSettingsProvider.targetDefault(
+            variant: variant,
+            platform: platform,
+            product: product,
+            swift: true
+        ).toSettings()
+        let targetSystemInferred = try systemInferredTargetSettings(for: project)
+        let filter = try createFilter(
+            defaultSettings: defaultSettings,
+            essentialKeys: DefaultSettingsProvider.essentialTargetSettings,
+            newXcodeKeys: DefaultSettingsProvider.xcodeVersionSpecificSettings
+        )
 
-        var settings: [String: SettingValue] = [:]
+        var settings: SettingsDictionary = [:]
         settingsHelper.extend(buildSettings: &settings, with: targetDefaultAll)
         settingsHelper.extend(buildSettings: &settings, with: targetDefaultVariant)
+        settingsHelper.extend(buildSettings: &settings, with: targetSystemInferred)
         return settings.filter(filter)
     }
 
     // MARK: - Private
 
-    private func createFilter(defaultSettings: DefaultSettings, essentialKeys: Set<String>) -> (String, SettingValue) -> Bool {
+    private func createFilter(
+        defaultSettings: DefaultSettings,
+        essentialKeys: Set<String>,
+        newXcodeKeys: [Version: Set<String>] = [:]
+    ) throws -> (String, SettingValue) -> Bool {
         switch defaultSettings {
-        case .essential:
-            return { key, _ in essentialKeys.contains(key) }
-        case .recommended:
-            return { _, _ in true }
+        case let .essential(excludedKeys):
+            return { key, _ in essentialKeys.contains(key) && !excludedKeys.contains(key) }
+        case let .recommended(excludedKeys):
+            let xcodeVersion = try xcodeController.selectedVersion()
+            return { key, _ in
+                // Filter keys that are from higher Xcode version than current (otherwise return true)
+                !newXcodeKeys
+                    .filter { $0.key > xcodeVersion }
+                    .values.flatMap { $0 }.contains(key) &&
+                    !excludedKeys.contains(key)
+            }
         case .none:
             return { _, _ in false }
         }
+    }
+
+    private func systemInferredTargetSettings(for project: Project) throws -> SettingsDictionary {
+        var systemInferredSettings = SettingsDictionary()
+        // If swift version is already specified at the project level settings, there is no need to
+        // override it with an inferred version. This allows users to set `SWIFT_VERSION`
+        // at the project level and it automatically applying to all targets without it getting
+        // overwritten with an inferred version.
+        if project.settings.base["SWIFT_VERSION"] == nil {
+            systemInferredSettings["SWIFT_VERSION"] = .string(try system.swiftVersion())
+        }
+        return systemInferredSettings
     }
 }
 
@@ -136,8 +207,8 @@ enum BuildSettingsError: FatalError {
 }
 
 extension BuildSettings {
-    func toSettings() throws -> [String: SettingValue] {
-        return try mapValues { value in
+    func toSettings() throws -> SettingsDictionary {
+        try mapValues { value in
             switch value {
             case let value as String:
                 return .string(value)

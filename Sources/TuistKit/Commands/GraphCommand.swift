@@ -1,57 +1,84 @@
-import Basic
+import ArgumentParser
 import Foundation
-import SPMUtility
-import TuistCore
+import GraphViz
+import TSCBasic
 import TuistGenerator
+import TuistLoader
+import TuistSupport
 
 /// Command that generates and exports a dot graph from the workspace or project in the current directory.
-class GraphCommand: NSObject, Command {
-    /// Command name.
-    static var command: String = "graph"
+struct GraphCommand: AsyncParsableCommand, HasTrackableParameters {
+    static var analyticsDelegate: TrackableParametersDelegate?
 
-    /// Command description.
-    static var overview: String = "Generates a dot graph from the workspace or project in the current directory."
-
-    /// Dot graph generator.
-    let dotGraphGenerator: DotGraphGenerating
-
-    /// Manifest loader.
-    let manifestLoader: GraphManifestLoading
-
-    required convenience init(parser: ArgumentParser) {
-        let system = System()
-        let resourceLocator = ResourceLocator()
-        let manifestLoader = GraphManifestLoader(system: system,
-                                                 resourceLocator: resourceLocator)
-        let manifestLinter = ManifestLinter()
-        let modelLoader = GeneratorModelLoader(manifestLoader: manifestLoader,
-                                               manifestLinter: manifestLinter)
-
-        let dotGraphGenerator = DotGraphGenerator(modelLoader: modelLoader)
-        self.init(parser: parser,
-                  dotGraphGenerator: dotGraphGenerator,
-                  manifestLoader: manifestLoader)
+    static var configuration: CommandConfiguration {
+        CommandConfiguration(
+            commandName: "graph",
+            abstract: "Generates a graph from the workspace or project in the current directory"
+        )
     }
 
-    init(parser: ArgumentParser,
-         dotGraphGenerator: DotGraphGenerating,
-         manifestLoader: GraphManifestLoading) {
-        parser.add(subparser: GraphCommand.command, overview: GraphCommand.overview)
-        self.dotGraphGenerator = dotGraphGenerator
-        self.manifestLoader = manifestLoader
-    }
+    @Flag(
+        name: [.customShort("t"), .long],
+        help: "Skip Test targets during graph rendering."
+    )
+    var skipTestTargets: Bool = false
 
-    func run(with _: ArgumentParser.Result) throws {
-        let graph = try dotGraphGenerator.generate(at: FileHandler.shared.currentPath,
-                                                   manifestLoader: manifestLoader)
+    @Flag(
+        name: [.customShort("d"), .long],
+        help: "Skip external dependencies."
+    )
+    var skipExternalDependencies: Bool = false
 
-        let path = FileHandler.shared.currentPath.appending(component: "graph.dot")
-        if FileHandler.shared.exists(path) {
-            Printer.shared.print("Deleting existing graph at \(path.pathString)")
-            try FileHandler.shared.delete(path)
-        }
+    @Option(
+        name: [.customShort("f"), .long],
+        help: "Available formats: dot, png, json"
+    )
+    var format: GraphFormat = .png
 
-        try FileHandler.shared.write(graph, path: path, atomically: true)
-        Printer.shared.print(success: "Graph exported to \(path.pathString)")
+    @Option(
+        name: [.customShort("a"), .customLong("algorithm")],
+        help: "Available formats: dot, neato, twopi, circo, fdp, sfddp, patchwork"
+    )
+    var layoutAlgorithm: GraphViz.LayoutAlgorithm = .dot
+
+    @Argument(help: "A list of targets to filter. Those and their dependent targets will be showed in the graph.")
+    var targets: [String] = []
+
+    @Option(
+        name: .shortAndLong,
+        help: "The path to the directory that contains the project whose targets will be cached.",
+        completion: .directory
+    )
+    var path: String?
+
+    @Option(
+        name: .shortAndLong,
+        help: "The path where the graph will be generated."
+    )
+    var outputPath: String?
+
+    func runAsync() async throws {
+        GraphCommand.analyticsDelegate?.willRun(withParameters: [
+            "format": format.rawValue,
+            "algorithm": layoutAlgorithm.rawValue,
+            "skip_external_dependencies": String(skipExternalDependencies),
+            "skip_test_targets": String(skipExternalDependencies),
+        ])
+        try await GraphService().run(
+            format: format,
+            layoutAlgorithm: layoutAlgorithm,
+            skipTestTargets: skipTestTargets,
+            skipExternalDependencies: skipExternalDependencies,
+            targetsToFilter: targets,
+            path: path.map { AbsolutePath($0) } ?? FileHandler.shared.currentPath,
+            outputPath: outputPath.map { AbsolutePath($0, relativeTo: FileHandler.shared.currentPath) } ?? FileHandler.shared
+                .currentPath
+        )
     }
 }
+
+enum GraphFormat: String, ExpressibleByArgument {
+    case dot, png, json
+}
+
+extension GraphViz.LayoutAlgorithm: ExpressibleByArgument {}

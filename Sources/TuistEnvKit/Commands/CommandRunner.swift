@@ -1,6 +1,7 @@
-import Basic
 import Foundation
-import TuistCore
+import TSCBasic
+import TSCUtility
+import TuistSupport
 
 protocol CommandRunning: AnyObject {
     func run() throws
@@ -28,7 +29,7 @@ class CommandRunner: CommandRunning {
     // MARK: - Attributes
 
     let versionResolver: VersionResolving
-    let system: Systeming
+    let environment: Environmenting
     let updater: Updating
     let versionsController: VersionsControlling
     let installer: Installing
@@ -37,15 +38,17 @@ class CommandRunner: CommandRunning {
 
     // MARK: - Init
 
-    init(versionResolver: VersionResolving = VersionResolver(),
-         system: Systeming = System(),
-         updater: Updating = Updater(),
-         installer: Installing = Installer(),
-         versionsController: VersionsControlling = VersionsController(),
-         arguments: @escaping () -> [String] = CommandRunner.arguments,
-         exiter: @escaping (Int) -> Void = { exit(Int32($0)) }) {
+    init(
+        versionResolver: VersionResolving = VersionResolver(),
+        environment: Environmenting = Environment.shared,
+        updater: Updating = Updater(),
+        installer: Installing = Installer(),
+        versionsController: VersionsControlling = VersionsController(),
+        arguments: @escaping () -> [String] = CommandRunner.arguments,
+        exiter: @escaping (Int) -> Void = { exit(Int32($0)) }
+    ) {
         self.versionResolver = versionResolver
-        self.system = system
+        self.environment = environment
         self.versionsController = versionsController
         self.arguments = arguments
         self.updater = updater
@@ -63,9 +66,9 @@ class CommandRunner: CommandRunning {
 
         switch resolvedVersion {
         case let .bin(path):
-            Printer.shared.print("Using bundled version at path \(path.pathString)")
+            logger.debug("Using bundled version at path \(path.pathString)")
         case let .versionFile(path, value):
-            Printer.shared.print("Using version \(value) defined at \(path.pathString)")
+            logger.debug("Using version \(value) defined at \(path.pathString)")
         default:
             break
         }
@@ -87,7 +90,7 @@ class CommandRunner: CommandRunning {
         if let highgestVersion = versionsController.semverVersions().last?.description {
             version = highgestVersion
         } else {
-            try updater.update(force: false)
+            try updater.update()
             guard let highgestVersion = versionsController.semverVersions().last?.description else {
                 throw CommandRunnerError.versionNotFound
             }
@@ -99,9 +102,15 @@ class CommandRunner: CommandRunning {
     }
 
     func runVersion(_ version: String) throws {
+        guard Version(string: version) != nil else {
+            logger.error("\(version) is not a valid version")
+            exiter(1)
+            return
+        }
+
         if !versionsController.versions().contains(where: { $0.description == version }) {
-            Printer.shared.print("Version \(version) not found locally. Installing...")
-            try installer.install(version: version, force: false)
+            logger.notice("Version \(version) not found locally. Installing...")
+            try installer.install(version: version)
         }
 
         let path = versionsController.path(version: version)
@@ -109,15 +118,26 @@ class CommandRunner: CommandRunning {
     }
 
     func runAtPath(_ path: AbsolutePath) throws {
-        var args = [path.appending(component: Constants.binName).pathString]
+        var args: [String] = []
+
+        args.append(path.appending(component: Constants.binName).pathString)
         args.append(contentsOf: Array(arguments().dropFirst()))
 
-        try system.runAndPrint(args, verbose: false, environment: ProcessInfo.processInfo.environment)
+        var environment = ProcessInfo.processInfo.environment
+        if CommandLine.arguments.contains("--verbose") {
+            environment[Constants.EnvironmentVariables.verbose] = "true"
+        }
+
+        do {
+            try System.shared.runAndPrint(args, verbose: false, environment: environment)
+        } catch {
+            exiter(1)
+        }
     }
 
     // MARK: - Static
 
     static func arguments() -> [String] {
-        return Array(ProcessInfo.processInfo.arguments)
+        Array(ProcessInfo.processInfo.arguments).filter { $0 != "--verbose" }
     }
 }

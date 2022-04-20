@@ -1,5 +1,5 @@
 import Foundation
-import TuistCoreTesting
+import TuistSupportTesting
 import XCTest
 
 @testable import ProjectDescription
@@ -7,7 +7,6 @@ import XCTest
 final class CoreDataModelTests: XCTestCase {
     func test_toJSON() {
         let subject = CoreDataModel("path", currentVersion: "current")
-
-        XCTAssertCodableEqualToJson(subject, "{\"current_version\": \"current\", \"path\": \"path\"}")
+        XCTAssertCodable(subject)
     }
 }

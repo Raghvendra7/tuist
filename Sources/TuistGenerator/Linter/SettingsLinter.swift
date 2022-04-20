@@ -1,6 +1,8 @@
-import Basic
 import Foundation
+import TSCBasic
 import TuistCore
+import TuistGraph
+import TuistSupport
 
 protocol SettingsLinting: AnyObject {
     func lint(project: Project) -> [LintingIssue]
@@ -21,6 +23,10 @@ final class SettingsLinter: SettingsLinting {
         var issues: [LintingIssue] = []
         if let settings = target.settings {
             issues.append(contentsOf: lintConfigFilesExist(settings: settings))
+        }
+
+        if let deploymentTarget = target.deploymentTarget {
+            issues.append(contentsOf: lint(platform: target.platform, isCompatibleWith: deploymentTarget))
         }
         return issues
     }
@@ -45,7 +51,26 @@ final class SettingsLinter: SettingsLinting {
 
     private func lintNonEmptyConfig(project: Project) -> [LintingIssue] {
         guard !project.settings.configurations.isEmpty else {
-            return [LintingIssue(reason: "The project at path \(project.path.pathString) has no configurations", severity: .error)]
+            return [LintingIssue(
+                reason: "The project at path \(project.path.pathString) has no configurations",
+                severity: .error
+            )]
+        }
+        return []
+    }
+
+    // TODO_MAJOR_CHANGE: Merge deploymentTarget and platform arguments together.
+    private func lint(platform: Platform, isCompatibleWith deploymentTarget: DeploymentTarget) -> [LintingIssue] {
+        let issue = LintingIssue(
+            reason: "Found an inconsistency between a platform `\(platform.caseValue)` and deployment target `\(deploymentTarget.platform)`",
+            severity: .error
+        )
+
+        switch deploymentTarget {
+        case .iOS: if platform != .iOS { return [issue] }
+        case .macOS: if platform != .macOS { return [issue] }
+        case .watchOS: if platform != .watchOS { return [issue] }
+        case .tvOS: if platform != .tvOS { return [issue] }
         }
         return []
     }

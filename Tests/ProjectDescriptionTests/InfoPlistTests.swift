@@ -1,5 +1,5 @@
 import Foundation
-import TuistCoreTesting
+import TuistSupportTesting
 import XCTest
 
 @testable import ProjectDescription
@@ -17,6 +17,7 @@ final class InfoPlistTests: XCTestCase {
             "boolean": true,
             "dictionary": ["a": "b"],
             "array": ["a", "b"],
+            "real": 0.8,
         ])
         XCTAssertCodable(subject)
     }

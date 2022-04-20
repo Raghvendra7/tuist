@@ -1,0 +1,6 @@
+node_modules
+.cache
+public/
+yarn-error.log
+TODO
+.build/

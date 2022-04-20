@@ -1,6 +1,8 @@
-import Basic
 import Foundation
+import TSCBasic
 import TuistCore
+import TuistGraph
+import TuistSupport
 import XcodeProj
 
 enum ProjectGroupsError: FatalError, Equatable {
@@ -24,27 +26,26 @@ enum ProjectGroupsError: FatalError, Equatable {
 class ProjectGroups {
     // MARK: - Attributes
 
-    let main: PBXGroup
+    @SortedPBXGroup var sortedMain: PBXGroup
     let products: PBXGroup
     let frameworks: PBXGroup
-    let playgrounds: PBXGroup?
 
     private let pbxproj: PBXProj
     private let projectGroups: [String: PBXGroup]
 
     // MARK: - Init
 
-    private init(main: PBXGroup,
-                 projectGroups: [(name: String, group: PBXGroup)],
-                 products: PBXGroup,
-                 frameworks: PBXGroup,
-                 playgrounds: PBXGroup?,
-                 pbxproj: PBXProj) {
-        self.main = main
+    private init(
+        main: PBXGroup,
+        projectGroups: [(name: String, group: PBXGroup)],
+        products: PBXGroup,
+        frameworks: PBXGroup,
+        pbxproj: PBXProj
+    ) {
+        sortedMain = main
         self.projectGroups = Dictionary(uniqueKeysWithValues: projectGroups)
         self.products = products
         self.frameworks = frameworks
-        self.playgrounds = playgrounds
         self.pbxproj = pbxproj
     }
 
@@ -63,15 +64,22 @@ class ProjectGroups {
         return group
     }
 
-    static func generate(project: Project,
-                         pbxproj: PBXProj,
-                         sourceRootPath: AbsolutePath,
-                         playgrounds: Playgrounding = Playgrounds()) -> ProjectGroups {
+    static func generate(
+        project: Project,
+        pbxproj: PBXProj
+    ) -> ProjectGroups {
         /// Main
-        let projectRelativePath = project.path.relative(to: sourceRootPath).pathString
-        let mainGroup = PBXGroup(children: [],
-                                 sourceTree: .group,
-                                 path: (projectRelativePath != ".") ? projectRelativePath : nil)
+        let projectRelativePath = project.sourceRootPath.relative(to: project.xcodeProjPath.parentDirectory).pathString
+        let textSettings = project.options.textSettings
+        let mainGroup = PBXGroup(
+            children: [],
+            sourceTree: .group,
+            path: (projectRelativePath != ".") ? projectRelativePath : nil,
+            wrapsLines: textSettings.wrapsLines,
+            usesTabs: textSettings.usesTabs,
+            indentWidth: textSettings.indentWidth,
+            tabWidth: textSettings.tabWidth
+        )
         pbxproj.add(object: mainGroup)
 
         /// Project & Target Groups
@@ -90,29 +98,22 @@ class ProjectGroups {
         pbxproj.add(object: frameworksGroup)
         mainGroup.children.append(frameworksGroup)
 
-        /// Playgrounds
-        var playgroundsGroup: PBXGroup!
-        if !playgrounds.paths(path: project.path).isEmpty {
-            playgroundsGroup = PBXGroup(children: [], sourceTree: .group, path: "Playgrounds")
-            pbxproj.add(object: playgroundsGroup)
-            mainGroup.children.append(playgroundsGroup)
-        }
-
         /// Products
         let productsGroup = PBXGroup(children: [], sourceTree: .group, name: "Products")
         pbxproj.add(object: productsGroup)
         mainGroup.children.append(productsGroup)
 
-        return ProjectGroups(main: mainGroup,
-                             projectGroups: projectGroups,
-                             products: productsGroup,
-                             frameworks: frameworksGroup,
-                             playgrounds: playgroundsGroup,
-                             pbxproj: pbxproj)
+        return ProjectGroups(
+            main: mainGroup,
+            projectGroups: projectGroups,
+            products: productsGroup,
+            frameworks: frameworksGroup,
+            pbxproj: pbxproj
+        )
     }
 
     private static func extractProjectGroupNames(from project: Project) -> [String] {
-        let groups = [project.filesGroup] + project.targets.map { $0.filesGroup }
+        let groups = [project.filesGroup] + project.targets.map(\.filesGroup)
         let groupNames: [String] = groups.compactMap {
             switch $0 {
             case let .group(name: groupName):

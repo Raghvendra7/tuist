@@ -1,6 +1,6 @@
-import Basic
 import Foundation
-import TuistCore
+import TSCBasic
+import TuistSupport
 
 /// Protocol that defines the interface of an instance that can install versions of Tuist.
 protocol Installing: AnyObject {
@@ -8,9 +8,8 @@ protocol Installing: AnyObject {
     ///
     /// - Parameters:
     ///   - version: Version to be installed.
-    ///   - force: When true, it ignores the Swift version and compiles it from the source.
     /// - Throws: An error if the installation fails.
-    func install(version: String, force: Bool) throws
+    func install(version: String) throws
 }
 
 /// Error thrown by the installer.
@@ -36,175 +35,59 @@ enum InstallerError: FatalError, Equatable {
             return "Found \(local) Swift version but expected \(expected)"
         }
     }
-
-    static func == (lhs: InstallerError, rhs: InstallerError) -> Bool {
-        switch (lhs, rhs) {
-        case let (.versionNotFound(lhsVersion), .versionNotFound(rhsVersion)):
-            return lhsVersion == rhsVersion
-        case let (.incompatibleSwiftVersion(lhsLocal, lhsExpected), .incompatibleSwiftVersion(rhsLocal, rhsExpected)):
-            return lhsLocal == rhsLocal && lhsExpected == rhsExpected
-        default:
-            return false
-        }
-    }
 }
 
 /// Class that manages the installation of Tuist versions.
 final class Installer: Installing {
     // MARK: - Attributes
 
-    let system: Systeming
     let buildCopier: BuildCopying
     let versionsController: VersionsControlling
-    let githubClient: GitHubClienting
 
     // MARK: - Init
 
-    init(system: Systeming = System(),
-         buildCopier: BuildCopying = BuildCopier(),
-         versionsController: VersionsControlling = VersionsController(),
-         githubClient: GitHubClienting = GitHubClient()) {
-        self.system = system
+    init(
+        buildCopier: BuildCopying = BuildCopier(),
+        versionsController: VersionsControlling = VersionsController()
+    ) {
         self.buildCopier = buildCopier
         self.versionsController = versionsController
-        self.githubClient = githubClient
     }
 
     // MARK: - Installing
 
-    func install(version: String, force: Bool) throws {
-        let temporaryDirectory = try TemporaryDirectory(removeTreeOnDeinit: true)
-        try install(version: version, temporaryDirectory: temporaryDirectory, force: force)
-    }
-
-    func install(version: String, temporaryDirectory: TemporaryDirectory, force: Bool = false) throws {
-        // We ignore the Swift version and install from the soruce code
-        if force {
-            Printer.shared.print("Forcing the installation of \(version) from the source code")
-            try installFromSource(version: version,
-                                  temporaryDirectory: temporaryDirectory)
-            return
-        }
-
-        try verifySwiftVersion(version: version)
-
-        var bundleURL: URL?
-        do {
-            bundleURL = try self.bundleURL(version: version)
-        } catch {}
-
-        if let bundleURL = bundleURL {
-            try installFromBundle(bundleURL: bundleURL,
-                                  version: version,
-                                  temporaryDirectory: temporaryDirectory)
-        } else {
-            try installFromSource(version: version,
-                                  temporaryDirectory: temporaryDirectory)
+    func install(version: String) throws {
+        try withTemporaryDirectory { temporaryDirectory in
+            try install(version: version, temporaryDirectory: temporaryDirectory)
         }
     }
 
-    func verifySwiftVersion(version: String) throws {
-        guard let localVersionString = try system.swiftVersion() else { return }
-        Printer.shared.print("Verifying the Swift version is compatible with your version \(localVersionString)")
-        var remoteVersionString: String!
-        do {
-            remoteVersionString = try githubClient.getContent(ref: version, path: ".swift-version").spm_chomp()
-        } catch is GitHubClientError {
-            Printer.shared.print(warning: "Couldn't get the Swift version needed for \(version). Continuing...")
-        }
-
-        let localVersion = SwiftVersion(localVersionString)
-        let remoteVersion = SwiftVersion(remoteVersionString)
-        let versionFive = SwiftVersion("5")
-
-        if localVersion >= versionFive, remoteVersion >= versionFive {
-            return
-        } else if localVersion == remoteVersion {
-            return
-        } else {
-            throw InstallerError.incompatibleSwiftVersion(local: localVersionString, expected: remoteVersionString)
-        }
+    func install(version: String, temporaryDirectory: AbsolutePath) throws {
+        try installFromBundle(
+            bundleURL: URL(string: "https://github.com/tuist/tuist/releases/download/\(version)/tuist.zip")!,
+            version: version,
+            temporaryDirectory: temporaryDirectory
+        )
     }
 
-    func bundleURL(version: String) throws -> URL? {
-        guard let release = try? githubClient.release(tag: version) else {
-            Printer.shared.print(warning: "The release \(version) couldn't be obtained from GitHub")
-            return nil
-        }
-        guard let bundleAsset = release.assets.first(where: { $0.name == Constants.bundleName }) else {
-            Printer.shared.print(warning: "The release \(version) is not bundled")
-            return nil
-        }
-        return bundleAsset.downloadURL
-    }
-
-    func installFromBundle(bundleURL: URL,
-                           version: String,
-                           temporaryDirectory: TemporaryDirectory) throws {
+    func installFromBundle(
+        bundleURL: URL,
+        version: String,
+        temporaryDirectory: AbsolutePath
+    ) throws {
         try versionsController.install(version: version, installation: { installationDirectory in
 
             // Download bundle
-            Printer.shared.print("Downloading version from \(bundleURL.absoluteString)")
-            let downloadPath = temporaryDirectory.path.appending(component: Constants.bundleName)
-            try system.run("/usr/bin/curl", "-LSs", "--output", downloadPath.pathString, bundleURL.absoluteString)
+            logger.notice("Downloading version \(version)")
+
+            let downloadPath = temporaryDirectory.appending(component: Constants.bundleName)
+            try System.shared.run(["/usr/bin/curl", "-LSs", "--output", downloadPath.pathString, bundleURL.absoluteString])
 
             // Unzip
-            Printer.shared.print("Installing...")
-            try system.run("/usr/bin/unzip", "-q", downloadPath.pathString, "-d", installationDirectory.pathString)
+            logger.notice("Installing…")
+            try System.shared.run(["/usr/bin/unzip", "-q", downloadPath.pathString, "-d", installationDirectory.pathString])
 
-            try createTuistVersionFile(version: version, path: installationDirectory)
-            Printer.shared.print("Version \(version) installed")
+            logger.notice("Version \(version) installed")
         })
-    }
-
-    func installFromSource(version: String,
-                           temporaryDirectory: TemporaryDirectory) throws {
-        try versionsController.install(version: version) { installationDirectory in
-            // Paths
-            let buildDirectory = temporaryDirectory.path.appending(RelativePath(".build/release/"))
-
-            // Cloning and building
-            Printer.shared.print("Pulling source code")
-            try system.run("/usr/bin/env", "git", "clone", Constants.gitRepositoryURL, temporaryDirectory.path.pathString)
-
-            do {
-                try system.run("/usr/bin/env", "git", "-C", temporaryDirectory.path.pathString, "checkout", version)
-            } catch let error as SystemError {
-                if error.description.contains("did not match any file(s) known to git") {
-                    throw InstallerError.versionNotFound(version)
-                }
-                throw error
-            }
-
-            Printer.shared.print("Building using Swift (it might take a while)")
-            let swiftPath = try system.capture("/usr/bin/xcrun", "-f", "swift").spm_chuzzle()!
-
-            try system.run(swiftPath, "build",
-                           "--product", "tuist",
-                           "--package-path", temporaryDirectory.path.pathString,
-                           "--configuration", "release")
-            try system.run(swiftPath, "build",
-                           "--product", "ProjectDescription",
-                           "--package-path", temporaryDirectory.path.pathString,
-                           "--configuration", "release")
-
-            if FileHandler.shared.exists(installationDirectory) {
-                try FileHandler.shared.delete(installationDirectory)
-            }
-            try FileHandler.shared.createFolder(installationDirectory)
-
-            try buildCopier.copy(from: buildDirectory,
-                                 to: installationDirectory)
-
-            try createTuistVersionFile(version: version, path: installationDirectory)
-            Printer.shared.print("Version \(version) installed")
-        }
-    }
-
-    private func createTuistVersionFile(version: String, path: AbsolutePath) throws {
-        let tuistVersionPath = path.appending(component: Constants.versionFileName)
-        try "\(version)".write(to: tuistVersionPath.url,
-                               atomically: true,
-                               encoding: .utf8)
     }
 }

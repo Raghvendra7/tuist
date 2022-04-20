@@ -1,51 +1,33 @@
 import Foundation
-import TuistCoreTesting
+import TuistSupportTesting
 import XCTest
 
 @testable import ProjectDescription
 
 final class WorkspaceTests: XCTestCase {
-    func test_toJSON() throws {
+    func test_codable() throws {
         let subject = Workspace(name: "name", projects: ["/path/to/project"])
-
-        let expected =
-            """
-            {
-               "name":"name",
-               "projects": [
-                  "/path/to/project"
-               ],
-               "additionalFiles": [
-               ]
-            }
-            """
-
-        XCTAssertCodableEqualToJson(subject, expected)
+        XCTAssertCodable(subject)
     }
 
-    func test_toJSON_withAdditionalFiles() throws {
-        let subject = Workspace(name: "name",
-                                projects: ["ProjectA"],
-                                additionalFiles: [
-                                    .glob(pattern: "Documentation/**"),
-                                ])
+    func test_codable_withAdditionalFiles() throws {
+        let subject = Workspace(
+            name: "name",
+            projects: ["ProjectA"],
+            additionalFiles: [
+                .glob(pattern: "Documentation/**"),
+            ]
+        )
+        XCTAssertCodable(subject)
+    }
 
-        let expected =
-            """
-            {
-               "name":"name",
-               "projects": [
-                  "ProjectA"
-               ],
-               "additionalFiles": [
-                    {
-                        "type": "glob",
-                        "pattern": "Documentation/**"
-                    }
-               ]
-            }
-            """
+    func test_codable_withGenerationOptions() throws {
+        let subject = Workspace(
+            name: "name",
+            projects: ["ProjectA"],
+            generationOptions: .options(enableAutomaticXcodeSchemes: true)
+        )
 
-        XCTAssertCodableEqualToJson(subject, expected)
+        XCTAssertCodable(subject)
     }
 }

@@ -1,9 +1,9 @@
-import Basic
 import Foundation
 import PathKit
+import TSCBasic
 
 extension AbsolutePath {
     var path: Path {
-        return Path(pathString)
+        Path(pathString)
     }
 }

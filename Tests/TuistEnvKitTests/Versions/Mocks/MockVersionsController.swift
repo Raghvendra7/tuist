@@ -1,11 +1,13 @@
-import Basic
 import Foundation
-import SPMUtility
+import TSCBasic
+import struct TSCUtility.Version
+import TuistSupport
+import TuistSupportTesting
 @testable import TuistEnvKit
 
 final class MockVersionsController: VersionsControlling {
     private let tmpDir: TemporaryDirectory
-    var path: AbsolutePath { return tmpDir.path }
+    var path: AbsolutePath { tmpDir.path }
     var pathCallCount: UInt = 0
     var pathStub: ((String) -> AbsolutePath)?
     var installCallCount: UInt = 0

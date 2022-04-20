@@ -1,3 +1,14 @@
 {
-  "recommendations": ["blodwynn.featurehighlight", "silvenon.mdx"]
+  "recommendations": [
+    "blodwynn.featurehighlight",
+    "silvenon.mdx",
+    "bradlc.vscode-tailwindcss",
+    "rebornix.ruby",
+    "misogi.ruby-rubocop",
+    "shopify.vscode-shadowenv",
+    "editorconfig.editorconfig",
+    "dracula-theme.theme-dracula",
+    "esbenp.prettier-vscode",
+    "Orta.vscode-jest",
+  ]
 }

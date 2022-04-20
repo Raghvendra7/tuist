@@ -1,13 +1,13 @@
 # file options
 
 --symlinks ignore
---exclude Tests/XCTestManifests.swift
---exclude fixtures/
+--exclude Tests/XCTestManifests.swift,projects/tuist/features
 
 # format options
 
 --allman false
 --binarygrouping 4,8
+--closingparen balanced
 --commas always
 --comments indent
 --decimalgrouping 3,6
@@ -15,6 +15,7 @@
 --empty void
 --exponentcase lowercase
 --exponentgrouping disabled
+--extensionacl on-declarations
 --fractiongrouping disabled
 --header ignore
 --hexgrouping 4,8
@@ -32,5 +33,8 @@
 --semicolons inline
 --stripunusedargs always
 --trimwhitespace always
---wraparguments preserve
---wrapcollections preserve
+--maxwidth 130
+--wraparguments before-first
+--wrapcollections before-first
+--wrapconditions after-first
+--wrapparameters before-first

@@ -1,70 +1,87 @@
-// MARK: - FileList
+import Foundation
 
-/// A model to refer to source files that supports passing compiler flags.
-public final class SourceFileGlob: ExpressibleByStringLiteral, Codable {
-    /// Relative glob pattern.
-    public let glob: String
+/// A glob pattern configuration representing source files and its compiler flags, if any.
+public struct SourceFileGlob: Codable, Equatable {
+    /// Glob pattern to the source files.
+    public let glob: Path
 
-    /// Compiler flags.
+    /// Glob patterns for source files that will be excluded.
+    public let excluding: [Path]
+
+    /// The compiler flags to be set to the source files in the sources build phase.
     public let compilerFlags: String?
 
-    /// Initializes a SourceFileGlob instance.
+    /// The source file attribute to be set in the build phase.
+    public let codeGen: FileCodeGen?
+
+    /// Returns a source glob pattern configuration.
     ///
     /// - Parameters:
-    ///   - glob: Relative glob pattern.
-    ///   - compilerFlags: Compiler flags.
-    public init(_ glob: String, compilerFlags: String? = nil) {
-        self.glob = glob
-        self.compilerFlags = compilerFlags
+    ///   - glob: Glob pattern to the source files.
+    ///   - excluding: Glob patterns for source files that will be excluded.
+    ///   - compilerFlags: The compiler flags to be set to the source files in the sources build phase.
+    ///   - codegen: The source file attribute to be set in the build phase.
+    public static func glob(
+        _ glob: Path,
+        excluding: [Path] = [],
+        compilerFlags: String? = nil,
+        codeGen: FileCodeGen? = nil
+    ) -> Self {
+        .init(glob: glob, excluding: excluding, compilerFlags: compilerFlags, codeGen: codeGen)
     }
 
-    public convenience init(stringLiteral value: String) {
-        self.init(value)
+    public static func glob(
+        _ glob: Path,
+        excluding: Path?,
+        compilerFlags: String? = nil,
+        codeGen: FileCodeGen? = nil
+    ) -> Self {
+        let paths: [Path] = excluding.flatMap { [$0] } ?? []
+        return .init(glob: glob, excluding: paths, compilerFlags: compilerFlags, codeGen: codeGen)
     }
 }
 
-public final class SourceFilesList: Codable {
-    public enum CodingKeys: String, CodingKey {
-        case globs
+extension SourceFileGlob: ExpressibleByStringInterpolation {
+    public init(stringLiteral value: String) {
+        self.init(glob: Path(value), excluding: [], compilerFlags: nil, codeGen: nil)
     }
+}
 
+/// A collection of source file globs.
+public struct SourceFilesList: Codable, Equatable {
     /// List glob patterns.
     public let globs: [SourceFileGlob]
 
-    /// Initializes the source files list with the glob patterns.
+    /// Creates the source files list with the glob patterns.
     ///
     /// - Parameter globs: Glob patterns.
     public init(globs: [SourceFileGlob]) {
         self.globs = globs
     }
 
-    /// Initializes the source files list with the glob patterns as strings.
+    /// Creates the source files list with the glob patterns as strings.
     ///
     /// - Parameter globs: Glob patterns.
     public init(globs: [String]) {
         self.globs = globs.map(SourceFileGlob.init)
     }
 
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        globs = try container.decode([SourceFileGlob].self)
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        try container.encode(globs)
+    /// Returns a sources list from a list of paths.
+    /// - Parameter paths: Source paths.
+    public static func paths(_ paths: [Path]) -> SourceFilesList {
+        SourceFilesList(globs: paths.map { .glob($0) })
     }
 }
 
 /// Support file as single string
-extension SourceFilesList: ExpressibleByStringLiteral {
-    public convenience init(stringLiteral value: String) {
+extension SourceFilesList: ExpressibleByStringInterpolation {
+    public init(stringLiteral value: String) {
         self.init(globs: [value])
     }
 }
 
 extension SourceFilesList: ExpressibleByArrayLiteral {
-    public convenience init(arrayLiteral elements: SourceFileGlob...) {
+    public init(arrayLiteral elements: SourceFileGlob...) {
         self.init(globs: elements)
     }
 }

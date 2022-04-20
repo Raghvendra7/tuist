@@ -1,6 +1,6 @@
-import Basic
 import Foundation
-import TuistCore
+import TSCBasic
+import TuistSupport
 
 protocol BuildCopying: AnyObject {
     func copy(from: AbsolutePath, to: AbsolutePath) throws
@@ -12,30 +12,23 @@ class BuildCopier: BuildCopying {
     /// Files that should be copied (if they exist).
     static let files: [String] = [
         "tuist",
+        Constants.templatesDirectoryName,
+        Constants.vendorDirectoryName,
         // Project description
         "ProjectDescription.swiftmodule",
         "ProjectDescription.swiftdoc",
+        "ProjectDescription.swiftinterface",
         "libProjectDescription.dylib",
     ]
-
-    // MARK: - Attributes
-
-    private let system: Systeming
-
-    // MARK: - Init
-
-    init(system: Systeming = System()) {
-        self.system = system
-    }
 
     func copy(from: AbsolutePath, to: AbsolutePath) throws {
         try BuildCopier.files.forEach { file in
             let filePath = from.appending(component: file)
             let toPath = to.appending(component: file)
             if !FileHandler.shared.exists(filePath) { return }
-            try system.run("/bin/cp", "-rf", filePath.pathString, toPath.pathString)
+            try System.shared.run(["/bin/cp", "-rf", filePath.pathString, toPath.pathString])
             if file == "tuist" {
-                try system.run("/bin/chmod", "+x", toPath.pathString)
+                try System.shared.run(["/bin/chmod", "+x", toPath.pathString])
             }
         }
     }

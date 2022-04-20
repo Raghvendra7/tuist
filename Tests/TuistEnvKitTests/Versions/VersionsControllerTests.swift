@@ -1,9 +1,10 @@
-import Basic
 import Foundation
-import SPMUtility
+import TSCBasic
+import struct TSCUtility.Version
+import TuistSupport
 import XCTest
-@testable import TuistCoreTesting
 @testable import TuistEnvKit
+@testable import TuistSupportTesting
 
 final class InstalledVersionTests: XCTestCase {
     func test_description() {
@@ -12,18 +13,17 @@ final class InstalledVersionTests: XCTestCase {
     }
 }
 
-final class VersionsControllerTests: XCTestCase {
-    var environmentController: MockEnvironmentController!
-    var fileHandler: MockFileHandler!
+final class VersionsControllerTests: TuistUnitTestCase {
     var subject: VersionsController!
 
     override func setUp() {
         super.setUp()
-        mockEnvironment()
-        fileHandler = sharedMockFileHandler()
+        subject = VersionsController()
+    }
 
-        environmentController = try! MockEnvironmentController()
-        subject = VersionsController(environmentController: environmentController)
+    override func tearDown() {
+        subject = nil
+        super.tearDown()
     }
 
     func test_install() throws {
@@ -32,25 +32,59 @@ final class VersionsControllerTests: XCTestCase {
             try Data().write(to: testPath.url)
         }
 
-        let versionsPath = environmentController.versionsDirectory
+        let versionsPath = environment.versionsDirectory
         let testPath = versionsPath.appending(RelativePath("3.2.1/test"))
 
-        XCTAssertTrue(fileHandler.exists(testPath))
+        XCTAssertTrue(FileHandler.shared.exists(testPath))
     }
 
     func test_path_for_version() {
         let got = subject.path(version: "ref")
 
-        XCTAssertEqual(got, environmentController.versionsDirectory.appending(component: "ref"))
+        XCTAssertEqual(got, environment.versionsDirectory.appending(component: "ref"))
     }
 
     func test_versions() throws {
-        try fileHandler.createFolder(environmentController.versionsDirectory.appending(component: "3.2.1"))
-        try fileHandler.createFolder(environmentController.versionsDirectory.appending(component: "ref"))
+        try FileHandler.shared.createFolder(environment.versionsDirectory.appending(component: "3.2.1"))
+        try FileHandler.shared.createFolder(environment.versionsDirectory.appending(component: "ref"))
 
         let versions = subject.versions()
 
         XCTAssertTrue(versions.contains(.reference("ref")))
         XCTAssertTrue(versions.contains(.semver(Version(string: "3.2.1")!)))
+    }
+
+    func test_semverVersions_ordered() throws {
+        // Given
+        let versions = [
+            "0.12.0",
+            "0.12.12",
+            "0.12.9",
+            "0.9.0",
+            "1.0.0",
+            "1.12.0",
+            "1.9.0",
+            "12.2.0",
+            "2.18.0",
+        ]
+        try versions.forEach {
+            try fileHandler.createFolder(environment.versionsDirectory.appending(component: $0))
+        }
+
+        // When
+        let results = subject.semverVersions()
+
+        // Then
+        XCTAssertEqual(results, [
+            Version(0, 9, 0),
+            Version(0, 12, 0),
+            Version(0, 12, 9),
+            Version(0, 12, 12),
+            Version(1, 0, 0),
+            Version(1, 9, 0),
+            Version(1, 12, 0),
+            Version(2, 18, 0),
+            Version(12, 2, 0),
+        ])
     }
 }

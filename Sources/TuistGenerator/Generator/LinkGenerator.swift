@@ -1,6 +1,9 @@
-import Basic
 import Foundation
+import PathKit
+import TSCBasic
 import TuistCore
+import TuistGraph
+import TuistSupport
 import XcodeProj
 
 enum LinkGeneratorError: FatalError, Equatable {
@@ -25,183 +28,336 @@ enum LinkGeneratorError: FatalError, Equatable {
             return .bug
         }
     }
+}
 
-    static func == (lhs: LinkGeneratorError, rhs: LinkGeneratorError) -> Bool {
-        switch (lhs, rhs) {
-        case let (.missingProduct(lhsName), .missingProduct(rhsName)):
-            return lhsName == rhsName
-        case let (.missingReference(lhsPath), .missingReference(rhsPath)):
-            return lhsPath == rhsPath
-        case let (.missingConfigurationList(lhsName), .missingConfigurationList(rhsName)):
-            return lhsName == rhsName
-        default:
-            return false
+protocol LinkGenerating: AnyObject {
+    func generateLinks(
+        target: Target,
+        pbxTarget: PBXTarget,
+        pbxproj: PBXProj,
+        fileElements: ProjectFileElements,
+        path: AbsolutePath,
+        sourceRootPath: AbsolutePath,
+        graphTraverser: GraphTraversing
+    ) throws
+}
+
+/// When generating build settings like "framework search path", some of the path might be relative to paths
+/// defined by environment variables like $(DEVELOPER_FRAMEWORKS_DIR). This enum represents both
+/// types of supported paths.
+enum LinkGeneratorPath: Hashable {
+    case absolutePath(AbsolutePath)
+    case string(String)
+
+    func xcodeValue(sourceRootPath: AbsolutePath) -> String {
+        switch self {
+        case let .absolutePath(path):
+            return "$(SRCROOT)/\(path.relative(to: sourceRootPath).pathString)"
+        case let .string(value):
+            return value
         }
     }
 }
 
-protocol LinkGenerating: AnyObject {
-    func generateLinks(target: Target,
-                       pbxTarget: PBXTarget,
-                       pbxproj: PBXProj,
-                       pbxProject: PBXProject,
-                       fileElements: ProjectFileElements,
-                       path: AbsolutePath,
-                       sourceRootPath: AbsolutePath,
-                       graph: Graphing,
-                       system: Systeming) throws
-}
-
+// swiftlint:disable type_body_length
 final class LinkGenerator: LinkGenerating {
-    /// An instance to locate tuist binaries.
-    let binaryLocator: BinaryLocating
+    /// Utility that generates the script to embed dynamic frameworks.
+    let embedScriptGenerator: EmbedScriptGenerating
 
     /// Initializes the link generator with its attributes.
-    ///
-    /// - Parameter binaryLocator: An instance to locate tuist binaries.
-    init(binaryLocator: BinaryLocating = BinaryLocator()) {
-        self.binaryLocator = binaryLocator
+    /// - Parameter embedScriptGenerator: Utility that generates the script to embed dynamic frameworks.
+    init(embedScriptGenerator: EmbedScriptGenerating = EmbedScriptGenerator()) {
+        self.embedScriptGenerator = embedScriptGenerator
     }
 
     // MARK: - LinkGenerating
 
-    func generateLinks(target: Target,
-                       pbxTarget: PBXTarget,
-                       pbxproj: PBXProj,
-                       pbxProject _: PBXProject,
-                       fileElements: ProjectFileElements,
-                       path: AbsolutePath,
-                       sourceRootPath: AbsolutePath,
-                       graph: Graphing,
-                       system: Systeming = System()) throws {
-        let embeddableFrameworks = try graph.embeddableFrameworks(path: path, name: target.name, system: system)
-        let headersSearchPaths = graph.librariesPublicHeadersFolders(path: path, name: target.name)
-        let librarySearchPaths = graph.librariesSearchPaths(path: path, name: target.name)
-        let swiftIncludePaths = graph.librariesSwiftIncludePaths(path: path, name: target.name)
-        let linkableModules = try graph.linkableDependencies(path: path, name: target.name, system: system)
+    func generateLinks(
+        target: Target,
+        pbxTarget: PBXTarget,
+        pbxproj: PBXProj,
+        fileElements: ProjectFileElements,
+        path: AbsolutePath,
+        sourceRootPath: AbsolutePath,
+        graphTraverser: GraphTraversing
+    ) throws {
+        try setupSearchAndIncludePaths(
+            target: target,
+            pbxTarget: pbxTarget,
+            sourceRootPath: sourceRootPath,
+            path: path,
+            graphTraverser: graphTraverser
+        )
 
-        try generateEmbedPhase(dependencies: embeddableFrameworks,
-                               pbxTarget: pbxTarget,
-                               pbxproj: pbxproj,
-                               fileElements: fileElements,
-                               sourceRootPath: sourceRootPath)
+        try generateEmbedPhase(
+            target: target,
+            pbxTarget: pbxTarget,
+            pbxproj: pbxproj,
+            fileElements: fileElements,
+            sourceRootPath: sourceRootPath,
+            path: path,
+            graphTraverser: graphTraverser
+        )
 
-        try setupFrameworkSearchPath(dependencies: linkableModules,
-                                     pbxTarget: pbxTarget,
-                                     sourceRootPath: sourceRootPath)
+        try generateLinkingPhase(
+            target: target,
+            pbxTarget: pbxTarget,
+            pbxproj: pbxproj,
+            fileElements: fileElements,
+            path: path,
+            graphTraverser: graphTraverser
+        )
 
-        try setupHeadersSearchPath(headersSearchPaths,
-                                   pbxTarget: pbxTarget,
-                                   sourceRootPath: sourceRootPath)
+        try generateCopyProductsBuildPhase(
+            path: path,
+            target: target,
+            graphTraverser: graphTraverser,
+            pbxTarget: pbxTarget,
+            pbxproj: pbxproj,
+            fileElements: fileElements
+        )
 
-        try setupLibrarySearchPaths(librarySearchPaths,
-                                    pbxTarget: pbxTarget,
-                                    sourceRootPath: sourceRootPath)
-
-        try setupSwiftIncludePaths(swiftIncludePaths,
-                                   pbxTarget: pbxTarget,
-                                   sourceRootPath: sourceRootPath)
-
-        try generateLinkingPhase(dependencies: linkableModules,
-                                 pbxTarget: pbxTarget,
-                                 pbxproj: pbxproj,
-                                 fileElements: fileElements)
-
-        try generateCopyProductsdBuildPhase(path: path,
-                                            target: target,
-                                            graph: graph,
-                                            pbxTarget: pbxTarget,
-                                            pbxproj: pbxproj,
-                                            fileElements: fileElements)
+        try generatePackages(
+            target: target,
+            pbxTarget: pbxTarget,
+            pbxproj: pbxproj
+        )
     }
 
-    func generateEmbedPhase(dependencies: [DependencyReference],
-                            pbxTarget: PBXTarget,
-                            pbxproj: PBXProj,
-                            fileElements: ProjectFileElements,
-                            sourceRootPath: AbsolutePath) throws {
-        let precompiledEmbedPhase = PBXShellScriptBuildPhase(name: "Embed Precompiled Frameworks")
-        let embedPhase = PBXCopyFilesBuildPhase(dstSubfolderSpec: .frameworks,
-                                                name: "Embed Frameworks")
-        pbxproj.add(object: precompiledEmbedPhase)
-        pbxproj.add(object: embedPhase)
+    private func setupSearchAndIncludePaths(
+        target: Target,
+        pbxTarget: PBXTarget,
+        sourceRootPath: AbsolutePath,
+        path: AbsolutePath,
+        graphTraverser: GraphTraversing
+    ) throws {
+        try setupFrameworkSearchPath(
+            target: target,
+            pbxTarget: pbxTarget,
+            sourceRootPath: sourceRootPath,
+            path: path,
+            graphTraverser: graphTraverser
+        )
 
-        pbxTarget.buildPhases.append(precompiledEmbedPhase)
-        pbxTarget.buildPhases.append(embedPhase)
+        try setupHeadersSearchPath(
+            target: target,
+            pbxTarget: pbxTarget,
+            sourceRootPath: sourceRootPath,
+            path: path,
+            graphTraverser: graphTraverser
+        )
 
-        var script: [String] = []
+        try setupLibrarySearchPaths(
+            target: target,
+            pbxTarget: pbxTarget,
+            sourceRootPath: sourceRootPath,
+            path: path,
+            graphTraverser: graphTraverser
+        )
 
-        try dependencies.forEach { dependency in
-            if case let DependencyReference.absolute(path) = dependency {
-                let relativePath = "$(SRCROOT)/\(path.relative(to: sourceRootPath).pathString)"
-                let binary = binaryLocator.copyFrameworksBinary()
-                script.append("\(binary) embed \(path.relative(to: sourceRootPath).pathString)")
-                precompiledEmbedPhase.inputPaths.append(relativePath)
-                precompiledEmbedPhase.outputPaths.append("$(BUILT_PRODUCTS_DIR)/$(FRAMEWORKS_FOLDER_PATH)/\(path.components.last!)")
+        try setupSwiftIncludePaths(
+            target: target,
+            pbxTarget: pbxTarget,
+            sourceRootPath: sourceRootPath,
+            path: path,
+            graphTraverser: graphTraverser
+        )
 
-            } else if case let DependencyReference.product(target) = dependency {
+        try setupRunPathSearchPaths(
+            target: target,
+            pbxTarget: pbxTarget,
+            sourceRootPath: sourceRootPath,
+            path: path,
+            graphTraverser: graphTraverser
+        )
+    }
+
+    func generatePackages(
+        target: Target,
+        pbxTarget: PBXTarget,
+        pbxproj: PBXProj
+    ) throws {
+        for dependency in target.dependencies {
+            switch dependency {
+            case let .package(product: product):
+                try pbxTarget.addSwiftPackageProduct(productName: product, pbxproj: pbxproj)
+            default:
+                break
+            }
+        }
+    }
+
+    // swiftlint:disable:next function_body_length
+    func generateEmbedPhase(
+        target: Target,
+        pbxTarget: PBXTarget,
+        pbxproj: PBXProj,
+        fileElements: ProjectFileElements,
+        sourceRootPath: AbsolutePath,
+        path: AbsolutePath,
+        graphTraverser: GraphTraversing
+    ) throws {
+        let embeddableFrameworks = graphTraverser.embeddableFrameworks(path: path, name: target.name).sorted()
+
+        let embedPhase = PBXCopyFilesBuildPhase(
+            dstPath: "",
+            dstSubfolderSpec: .frameworks,
+            name: "Embed Frameworks"
+        )
+
+        var frameworkReferences: [GraphDependencyReference] = []
+
+        try embeddableFrameworks.forEach { dependency in
+            switch dependency {
+            case .framework:
+                frameworkReferences.append(dependency)
+            case let .xcframework(path, _, _, _):
+                guard let fileRef = fileElements.file(path: path) else {
+                    throw LinkGeneratorError.missingReference(path: path)
+                }
+                let buildFile = PBXBuildFile(
+                    file: fileRef,
+                    settings: ["ATTRIBUTES": ["CodeSignOnCopy", "RemoveHeadersOnCopy"]]
+                )
+                pbxproj.add(object: buildFile)
+                embedPhase.files?.append(buildFile)
+            case let .product(target, _, platformFilter):
                 guard let fileRef = fileElements.product(target: target) else {
                     throw LinkGeneratorError.missingProduct(name: target)
                 }
-                let buildFile = PBXBuildFile(file: fileRef, settings: ["ATTRIBUTES": ["CodeSignOnCopy"]])
+                let buildFile = PBXBuildFile(
+                    file: fileRef,
+                    settings: ["ATTRIBUTES": ["CodeSignOnCopy", "RemoveHeadersOnCopy"]]
+                )
+                buildFile.platformFilter = platformFilter?.xcodeprojValue
                 pbxproj.add(object: buildFile)
                 embedPhase.files?.append(buildFile)
+            case .library, .bundle, .sdk:
+                // Do nothing
+                break
             }
         }
-        if script.isEmpty {
-            precompiledEmbedPhase.shellScript = "echo \"Skipping, nothing to be embedded.\""
-        } else {
-            precompiledEmbedPhase.shellScript = script.joined(separator: "\n")
+
+        if !frameworkReferences.isEmpty {
+            let precompiledEmbedPhase = PBXShellScriptBuildPhase(name: "Embed Precompiled Frameworks")
+
+            let script = try embedScriptGenerator.script(
+                sourceRootPath: sourceRootPath,
+                frameworkReferences: frameworkReferences,
+                includeSymbolsInFileLists: !target.product.testsBundle
+            )
+
+            precompiledEmbedPhase.shellScript = script.script
+            precompiledEmbedPhase.inputPaths = script.inputPaths
+                .map { "$(SRCROOT)/\($0.pathString)" }
+            precompiledEmbedPhase.outputPaths = script.outputPaths
+
+            pbxproj.add(object: precompiledEmbedPhase)
+            pbxTarget.buildPhases.append(precompiledEmbedPhase)
         }
+
+        pbxproj.add(object: embedPhase)
+        pbxTarget.buildPhases.append(embedPhase)
     }
 
-    func setupFrameworkSearchPath(dependencies: [DependencyReference],
-                                  pbxTarget: PBXTarget,
-                                  sourceRootPath: AbsolutePath) throws {
-        let paths = dependencies.compactMap { (dependency: DependencyReference) -> AbsolutePath? in
-            if case let .absolute(path) = dependency { return path }
-            return nil
+    func setupFrameworkSearchPath(
+        target: Target,
+        pbxTarget: PBXTarget,
+        sourceRootPath: AbsolutePath,
+        path: AbsolutePath,
+        graphTraverser: GraphTraversing
+    ) throws {
+        let linkableModules = try graphTraverser.searchablePathDependencies(path: path, name: target.name).sorted()
+
+        let precompiledPaths = linkableModules.compactMap(\.precompiledPath)
+            .map { LinkGeneratorPath.absolutePath($0.removingLastComponent()) }
+        let sdkPaths = linkableModules.compactMap { (dependency: GraphDependencyReference) -> LinkGeneratorPath? in
+            if case let GraphDependencyReference.sdk(_, _, source) = dependency {
+                return source.frameworkSearchPath.map { LinkGeneratorPath.string($0) }
+            } else {
+                return nil
+            }
         }
-        .map { $0.removingLastComponent() }
 
-        let uniquePaths = Array(Set(paths))
-        try setup(setting: "FRAMEWORK_SEARCH_PATHS",
-                  paths: uniquePaths,
-                  pbxTarget: pbxTarget,
-                  sourceRootPath: sourceRootPath)
+        let uniquePaths = Array(Set(precompiledPaths + sdkPaths))
+        try setup(
+            setting: "FRAMEWORK_SEARCH_PATHS",
+            paths: uniquePaths,
+            pbxTarget: pbxTarget,
+            sourceRootPath: sourceRootPath
+        )
     }
 
-    func setupHeadersSearchPath(_ paths: [AbsolutePath],
-                                pbxTarget: PBXTarget,
-                                sourceRootPath: AbsolutePath) throws {
-        try setup(setting: "HEADER_SEARCH_PATHS",
-                  paths: paths,
-                  pbxTarget: pbxTarget,
-                  sourceRootPath: sourceRootPath)
+    func setupHeadersSearchPath(
+        target: Target,
+        pbxTarget: PBXTarget,
+        sourceRootPath: AbsolutePath,
+        path: AbsolutePath,
+        graphTraverser: GraphTraversing
+    ) throws {
+        let headersSearchPaths = graphTraverser.librariesPublicHeadersFolders(path: path, name: target.name).sorted()
+        try setup(
+            setting: "HEADER_SEARCH_PATHS",
+            paths: headersSearchPaths.map(LinkGeneratorPath.absolutePath),
+            pbxTarget: pbxTarget,
+            sourceRootPath: sourceRootPath
+        )
     }
 
-    func setupLibrarySearchPaths(_ paths: [AbsolutePath],
-                                 pbxTarget: PBXTarget,
-                                 sourceRootPath: AbsolutePath) throws {
-        try setup(setting: "LIBRARY_SEARCH_PATHS",
-                  paths: paths,
-                  pbxTarget: pbxTarget,
-                  sourceRootPath: sourceRootPath)
+    func setupLibrarySearchPaths(
+        target: Target,
+        pbxTarget: PBXTarget,
+        sourceRootPath: AbsolutePath,
+        path: AbsolutePath,
+        graphTraverser: GraphTraversing
+    ) throws {
+        let librarySearchPaths = graphTraverser.librariesSearchPaths(path: path, name: target.name).sorted()
+        try setup(
+            setting: "LIBRARY_SEARCH_PATHS",
+            paths: librarySearchPaths.map(LinkGeneratorPath.absolutePath),
+            pbxTarget: pbxTarget,
+            sourceRootPath: sourceRootPath
+        )
     }
 
-    func setupSwiftIncludePaths(_ paths: [AbsolutePath],
-                                pbxTarget: PBXTarget,
-                                sourceRootPath: AbsolutePath) throws {
-        try setup(setting: "SWIFT_INCLUDE_PATHS",
-                  paths: paths,
-                  pbxTarget: pbxTarget,
-                  sourceRootPath: sourceRootPath)
+    func setupSwiftIncludePaths(
+        target: Target,
+        pbxTarget: PBXTarget,
+        sourceRootPath: AbsolutePath,
+        path: AbsolutePath,
+        graphTraverser: GraphTraversing
+    ) throws {
+        let swiftIncludePaths = graphTraverser.librariesSwiftIncludePaths(path: path, name: target.name).sorted()
+        try setup(
+            setting: "SWIFT_INCLUDE_PATHS",
+            paths: swiftIncludePaths.map(LinkGeneratorPath.absolutePath),
+            pbxTarget: pbxTarget,
+            sourceRootPath: sourceRootPath
+        )
     }
 
-    private func setup(setting name: String,
-                       paths: [AbsolutePath],
-                       pbxTarget: PBXTarget,
-                       sourceRootPath: AbsolutePath) throws {
+    func setupRunPathSearchPaths(
+        target: Target,
+        pbxTarget: PBXTarget,
+        sourceRootPath: AbsolutePath,
+        path: AbsolutePath,
+        graphTraverser: GraphTraversing
+    ) throws {
+        let runPathSearchPaths = graphTraverser.runPathSearchPaths(path: path, name: target.name).sorted()
+        try setup(
+            setting: "LD_RUNPATH_SEARCH_PATHS",
+            paths: runPathSearchPaths.map(LinkGeneratorPath.absolutePath),
+            pbxTarget: pbxTarget,
+            sourceRootPath: sourceRootPath
+        )
+    }
+
+    private func setup(
+        setting name: String,
+        paths: [LinkGeneratorPath],
+        pbxTarget: PBXTarget,
+        sourceRootPath: AbsolutePath
+    ) throws {
         guard let configurationList = pbxTarget.buildConfigurationList else {
             throw LinkGeneratorError.missingConfigurationList(targetName: pbxTarget.name)
         }
@@ -209,45 +365,57 @@ final class LinkGenerator: LinkGenerating {
             return
         }
         let value = SettingValue
-            .array(paths
-                .map { $0.relative(to: sourceRootPath).pathString }
-                .map { "$(SRCROOT)/\($0)" })
+            .array(["$(inherited)"] + paths.map { $0.xcodeValue(sourceRootPath: sourceRootPath) }.uniqued().sorted())
         let newSetting = [name: value]
-        let inheritedSetting = [name: SettingValue.string("$(inherited)")]
         let helper = SettingsHelper()
         try configurationList.buildConfigurations.forEach { configuration in
             try helper.extend(buildSettings: &configuration.buildSettings, with: newSetting)
-            try helper.extend(buildSettings: &configuration.buildSettings, with: inheritedSetting)
         }
     }
 
-    func generateLinkingPhase(dependencies: [DependencyReference],
-                              pbxTarget: PBXTarget,
-                              pbxproj: PBXProj,
-                              fileElements: ProjectFileElements) throws {
+    func generateLinkingPhase(
+        target: Target,
+        pbxTarget: PBXTarget,
+        pbxproj: PBXProj,
+        fileElements: ProjectFileElements,
+        path: AbsolutePath,
+        graphTraverser: GraphTraversing
+    ) throws {
+        let linkableDependencies = try graphTraverser.linkableDependencies(path: path, name: target.name).sorted()
+
         let buildPhase = PBXFrameworksBuildPhase()
         pbxproj.add(object: buildPhase)
         pbxTarget.buildPhases.append(buildPhase)
 
-        try dependencies
-            .sorted()
+        func addBuildFile(_ path: AbsolutePath) throws {
+            guard let fileRef = fileElements.file(path: path) else {
+                throw LinkGeneratorError.missingReference(path: path)
+            }
+            let buildFile = PBXBuildFile(file: fileRef)
+            pbxproj.add(object: buildFile)
+            buildPhase.files?.append(buildFile)
+        }
+
+        try linkableDependencies
             .forEach { dependency in
                 switch dependency {
-                case let .absolute(path):
-                    guard let fileRef = fileElements.file(path: path) else {
-                        throw LinkGeneratorError.missingReference(path: path)
-                    }
-                    let buildFile = PBXBuildFile(file: fileRef)
-                    pbxproj.add(object: buildFile)
-                    buildPhase.files?.append(buildFile)
-                case let .product(target):
+                case let .framework(path, _, _, _, _, _, _, _):
+                    try addBuildFile(path)
+                case let .library(path, _, _, _):
+                    try addBuildFile(path)
+                case let .xcframework(path, _, _, _):
+                    try addBuildFile(path)
+                case .bundle:
+                    break
+                case let .product(target, _, platformFilter):
                     guard let fileRef = fileElements.product(target: target) else {
                         throw LinkGeneratorError.missingProduct(name: target)
                     }
                     let buildFile = PBXBuildFile(file: fileRef)
+                    buildFile.platformFilter = platformFilter?.xcodeprojValue
                     pbxproj.add(object: buildFile)
                     buildPhase.files?.append(buildFile)
-                case let .sdk(sdkPath, sdkStatus):
+                case let .sdk(sdkPath, sdkStatus, _):
                     guard let fileRef = fileElements.sdk(path: sdkPath) else {
                         throw LinkGeneratorError.missingReference(path: sdkPath)
                     }
@@ -259,12 +427,14 @@ final class LinkGenerator: LinkGenerating {
             }
     }
 
-    func generateCopyProductsdBuildPhase(path: AbsolutePath,
-                                         target: Target,
-                                         graph: Graphing,
-                                         pbxTarget: PBXTarget,
-                                         pbxproj: PBXProj,
-                                         fileElements: ProjectFileElements) throws {
+    func generateCopyProductsBuildPhase(
+        path: AbsolutePath,
+        target: Target,
+        graphTraverser: GraphTraversing,
+        pbxTarget: PBXTarget,
+        pbxproj: PBXProj,
+        fileElements: ProjectFileElements
+    ) throws {
         // If the current target, which is non-shared (e.g., static lib), depends on other focused targets which
         // include Swift code, we must ensure those are treated as dependencies so that Xcode builds the targets
         // in the correct order. Unfortunately, those deps can be part of other projects which would require
@@ -279,14 +449,7 @@ final class LinkGenerator: LinkGenerating {
         // This technique also allows resource bundles that reside in different projects to get built ahead of the
         // "Copy Bundle Resources" phase.
 
-        var dependencies = [DependencyReference]()
-        if target.product.isStatic {
-            dependencies.append(contentsOf: graph.staticDependencies(path: path, name: target.name))
-        }
-
-        dependencies.append(contentsOf:
-            graph.resourceBundleDependencies(path: path, name: target.name)
-                .map { .product(target: $0.target.name) })
+        let dependencies = graphTraverser.copyProductDependencies(path: path, name: target.name).sorted()
 
         if !dependencies.isEmpty {
             try generateDependenciesBuildPhase(
@@ -298,18 +461,21 @@ final class LinkGenerator: LinkGenerating {
         }
     }
 
-    private func generateDependenciesBuildPhase(dependencies: [DependencyReference],
-                                                pbxTarget: PBXTarget,
-                                                pbxproj: PBXProj,
-                                                fileElements: ProjectFileElements) throws {
+    private func generateDependenciesBuildPhase(
+        dependencies: [GraphDependencyReference],
+        pbxTarget: PBXTarget,
+        pbxproj: PBXProj,
+        fileElements: ProjectFileElements
+    ) throws {
         var files: [PBXBuildFile] = []
 
-        for case let .product(target) in dependencies.sorted() {
+        for case let .product(target, _, platformFilter) in dependencies.sorted() {
             guard let fileRef = fileElements.product(target: target) else {
                 throw LinkGeneratorError.missingProduct(name: target)
             }
 
             let buildFile = PBXBuildFile(file: fileRef)
+            buildFile.platformFilter = platformFilter?.xcodeprojValue
             pbxproj.add(object: buildFile)
             files.append(buildFile)
         }
@@ -337,17 +503,38 @@ final class LinkGenerator: LinkGenerating {
         if status == .optional {
             settings = ["ATTRIBUTES": ["Weak"]]
         }
-        return PBXBuildFile(file: fileReference,
-                            settings: settings)
+        return PBXBuildFile(
+            file: fileReference,
+            settings: settings
+        )
     }
 }
 
-private extension XCBuildConfiguration {
-    func append(setting name: String, value: String) {
+extension XCBuildConfiguration {
+    fileprivate func append(setting name: String, value: String) {
         guard !value.isEmpty else {
             return
         }
         let existing = (buildSettings[name] as? String) ?? "$(inherited)"
         buildSettings[name] = [existing, value].joined(separator: " ")
+    }
+}
+
+extension PBXTarget {
+    func addSwiftPackageProduct(productName: String, pbxproj: PBXProj) throws {
+        let productDependency = XCSwiftPackageProductDependency(productName: productName)
+        pbxproj.add(object: productDependency)
+        packageProductDependencies.append(productDependency)
+
+        // Build file
+        let buildFile = PBXBuildFile(product: productDependency)
+        pbxproj.add(object: buildFile)
+
+        // Link the product
+        guard let frameworksBuildPhase = try frameworksBuildPhase() else {
+            throw "No frameworks build phase"
+        }
+
+        frameworksBuildPhase.files?.append(buildFile)
     }
 }

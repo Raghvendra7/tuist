@@ -1,5 +1,0 @@
-class FrameworkClass  {
-    func something() {
-        
-    }
-}

@@ -1,25 +1,11 @@
-import Basic
 import Foundation
-import SPMUtility
-import TuistCore
+import TSCBasic
+import TuistSupport
 
 enum ResolvedVersion: Equatable {
     case bin(AbsolutePath)
     case versionFile(AbsolutePath, String)
     case undefined
-
-    static func == (lhs: ResolvedVersion, rhs: ResolvedVersion) -> Bool {
-        switch (lhs, rhs) {
-        case let (.bin(lhsPath), .bin(rhsPath)):
-            return lhsPath == rhsPath
-        case let (.versionFile(lhsPath, lhsValue), .versionFile(rhsPath, rhsValue)):
-            return lhsValue == rhsValue && lhsPath == rhsPath
-        case (.undefined, .undefined):
-            return true
-        default:
-            return false
-        }
-    }
 }
 
 protocol VersionResolving: AnyObject {
@@ -41,13 +27,6 @@ enum VersionResolverError: FatalError, Equatable {
             return "Cannot read the version file at path \(path.pathString)."
         }
     }
-
-    static func == (lhs: VersionResolverError, rhs: VersionResolverError) -> Bool {
-        switch (lhs, rhs) {
-        case let (.readError(lhsPath), .readError(rhsPath)):
-            return lhsPath == rhsPath
-        }
-    }
 }
 
 class VersionResolver: VersionResolving {
@@ -65,7 +44,7 @@ class VersionResolver: VersionResolving {
     // MARK: - VersionResolving
 
     func resolve(path: AbsolutePath) throws -> ResolvedVersion {
-        return try resolveTraversing(from: path)
+        try resolveTraversing(from: path)
     }
 
     // MARK: - Fileprivate
@@ -87,7 +66,7 @@ class VersionResolver: VersionResolving {
     private func resolveVersionFile(path: AbsolutePath) throws -> ResolvedVersion {
         var value: String!
         do {
-            value = try String(contentsOf: URL(fileURLWithPath: path.pathString))
+            value = try String(contentsOf: URL(fileURLWithPath: path.pathString)).trimmingCharacters(in: .whitespacesAndNewlines)
         } catch {
             throw VersionResolverError.readError(path: path)
         }

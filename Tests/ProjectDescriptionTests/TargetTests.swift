@@ -1,269 +1,93 @@
 import Foundation
-import TuistCoreTesting
+import TuistSupportTesting
 import XCTest
 
 @testable import ProjectDescription
 
 final class TargetTests: XCTestCase {
     func test_toJSON() {
-        let subject = Target(name: "name",
-                             platform: .iOS,
-                             product: .app,
-                             productName: "product_name",
-                             bundleId: "bundle_id",
-                             infoPlist: "info.plist",
-                             sources: "sources/*",
-                             resources: "resources/*",
-                             headers: Headers(public: "public/*",
-                                              private: "private/*",
-                                              project: "project/*"),
-                             entitlements: "entitlement",
-                             actions: [
-                                 TargetAction.post(path: "path", arguments: ["arg"], name: "name"),
-                             ],
-                             dependencies: [
-                                 .framework(path: "path"),
-                                 .library(path: "path", publicHeaders: "public", swiftModuleMap: "module"),
-                                 .project(target: "target", path: "path"),
-                                 .target(name: "name"),
-                             ],
-                             settings: Settings(base: ["a": "b"],
-                                                debug: Configuration(settings: ["a": "b"],
-                                                                     xcconfig: "config"),
-                                                release: Configuration(settings: ["a": "b"],
-                                                                       xcconfig: "config")),
-                             coreDataModels: [CoreDataModel("pat", currentVersion: "version")],
-                             environment: ["a": "b"])
-
-        let expected = """
-        {
-            "headers": {
-                "public": { "globs": ["public\\/*"] },
-                "private": { "globs": ["private\\/*"] },
-                "project": { "globs": ["project\\/*"] }
-            },
-            "bundle_id": "bundle_id",
-            "core_data_models": [
-                {
-                    "path": "pat",
-                    "current_version": "version"
-                }
+        let subject = Target(
+            name: "name",
+            platform: .iOS,
+            product: .app,
+            productName: "product_name",
+            bundleId: "bundle_id",
+            deploymentTarget: .iOS(targetVersion: "13.1", devices: [.iphone, .ipad]),
+            infoPlist: "info.plist",
+            sources: "sources/*",
+            resources: "resources/*",
+            headers: .headers(
+                public: "public/*",
+                private: "private/*",
+                project: "project/*"
+            ),
+            entitlements: "entitlement",
+            scripts: [
+                TargetScript.post(path: "path", arguments: ["arg"], name: "name"),
             ],
-            "actions": [
-                {
-                    "arguments": [
-                        "arg"
-                    ],
-                    "path": "path",
-                    "order": "post",
-                    "name": "name"
-                }
+            dependencies: [
+                .framework(path: "path"),
+                .library(path: "path", publicHeaders: "public", swiftModuleMap: "module"),
+                .project(target: "target", path: "path"),
+                .target(name: "name"),
             ],
-            "product": "app",
-            "product_name": "product_name",
-            "sources": [
-                {
-                    "glob": "sources\\/*"
-                }
-            ],
-            "settings": {
-                "base": {
-                    "a": "b"
-                },
-                "configurations": [
-                    {
-                        "name": "Debug",
-                        "variant": "debug",
-                        "configuration": {
-                            "xcconfig": "config",
-                            "settings": {
-                                "a": "b"
-                            }
-                        }
-                    },
-                    {
-                        "name": "Release",
-                        "variant": "release",
-                        "configuration": {
-                            "xcconfig": "config",
-                            "settings": {
-                                "a": "b"
-                            }
-                        }
-                    },
-                ],
-                "defaultSettings": "recommended"
-            },
-            "resources": [
-                {
-                    "type": "glob",
-                    "pattern": "resources\\/*"
-                }
-            ],
-            "platform": "ios",
-            "entitlements": "entitlement",
-            "info_plist": {
-                "type": "file",
-                "value": "info.plist"
-            },
-            "dependencies": [
-                {
-                    "type": "framework",
-                    "path": "path"
-                },
-                {
-                    "path": "path",
-                    "public_headers": "public",
-                    "swift_module_map": "module",
-                    "type": "library"
-                },
-                {
-                    "type": "project",
-                    "target": "target",
-                    "path": "path"
-                },
-                {
-                    "type": "target",
-                    "name": "name"
-                }
-            ],
-            "environment": {
-                "a": "b"
-            },
-            "name": "name"
-        }
-        """
-        XCTAssertCodableEqualToJson(subject, expected)
+            settings: .settings(
+                base: ["a": .string("b")],
+                debug: ["a": .string("b")],
+                release: ["a": .string("b")]
+            ),
+            coreDataModels: [CoreDataModel("pat", currentVersion: "version")],
+            environment: ["a": "b"]
+        )
+        XCTAssertCodable(subject)
     }
 
     func test_toJSON_withFileList() {
-        let subject = Target(name: "name",
-                             platform: .iOS,
-                             product: .app,
-                             productName: "product_name",
-                             bundleId: "bundle_id",
-                             infoPlist: "info.plist",
-                             sources: SourceFilesList(globs: ["sources/*"]),
-                             resources: ["resources/*"],
-                             headers: Headers(public: ["public/*"],
-                                              private: ["private/*"],
-                                              project: ["project/*"]),
-                             entitlements: "entitlement",
-                             actions: [
-                                 TargetAction.post(path: "path", arguments: ["arg"], name: "name"),
-                             ],
-                             dependencies: [
-                                 .framework(path: "path"),
-                                 .library(path: "path", publicHeaders: "public", swiftModuleMap: "module"),
-                                 .project(target: "target", path: "path"),
-                                 .target(name: "name"),
-                             ],
-                             settings: Settings(base: ["a": "b"],
-                                                debug: Configuration(settings: ["a": "b"],
-                                                                     xcconfig: "config"),
-                                                release: Configuration(settings: ["a": "b"],
-                                                                       xcconfig: "config")),
-                             coreDataModels: [CoreDataModel("pat", currentVersion: "version")],
-                             environment: ["a": "b"])
-
-        let expected = """
-        {
-            "headers": {
-                "public": { "globs": ["public\\/*"] },
-                "private": { "globs": ["private\\/*"] },
-                "project": { "globs": ["project\\/*"] }
-            },
-            "bundle_id": "bundle_id",
-            "core_data_models": [
-                {
-                    "path": "pat",
-                    "current_version": "version"
-                }
+        let subject = Target(
+            name: "name",
+            platform: .iOS,
+            product: .app,
+            productName: "product_name",
+            bundleId: "bundle_id",
+            infoPlist: "info.plist",
+            sources: SourceFilesList(globs: [
+                "sources/*",
+                .glob("Intents/Public.intentdefinition", codeGen: .public),
+                .glob("Intents/Private.intentdefinition", codeGen: .private),
+                .glob("Intents/Project.intentdefinition", codeGen: .project),
+                .glob("Intents/Disabled.intentdefinition", codeGen: .disabled),
+            ]),
+            resources: [
+                "resources/*",
+                .glob(pattern: "file.type", tags: ["tag"]),
+                .folderReference(path: "resource/", tags: ["tag"]),
             ],
-            "actions": [
-                {
-                    "arguments": [
-                        "arg"
-                    ],
-                    "path": "path",
-                    "order": "post",
-                    "name": "name"
-                }
+            headers: .headers(
+                public: ["public/*"],
+                private: ["private/*"],
+                project: ["project/*"]
+            ),
+            entitlements: "entitlement",
+            scripts: [
+                TargetScript.post(path: "path", arguments: ["arg"], name: "name"),
             ],
-            "product": "app",
-            "product_name": "product_name",
-            "sources": [
-                {
-                    "glob": "sources\\/*"
-                }
+            dependencies: [
+                .framework(path: "path"),
+                .library(path: "path", publicHeaders: "public", swiftModuleMap: "module"),
+                .project(target: "target", path: "path"),
+                .target(name: "name"),
             ],
-            "settings": {
-                "base": {
-                    "a": "b"
-                },
-                "configurations": [
-                    {
-                        "name": "Debug",
-                        "variant": "debug",
-                        "configuration": {
-                            "xcconfig": "config",
-                            "settings": {
-                                "a": "b"
-                            }
-                        }
-                    },
-                    {
-                        "name": "Release",
-                        "variant": "release",
-                        "configuration": {
-                            "xcconfig": "config",
-                            "settings": {
-                                "a": "b"
-                            }
-                        }
-                    },
-                ],
-                "defaultSettings": "recommended"
-            },
-            "resources": [
-                {
-                    "type": "glob",
-                    "pattern": "resources\\/*"
-                }
-            ],
-            "platform": "ios",
-            "entitlements": "entitlement",
-            "info_plist": {
-                "type": "file",
-                "value": "info.plist"
-            },
-            "dependencies": [
-                {
-                    "type": "framework",
-                    "path": "path"
-                },
-                {
-                    "path": "path",
-                    "public_headers": "public",
-                    "swift_module_map": "module",
-                    "type": "library"
-                },
-                {
-                    "type": "project",
-                    "target": "target",
-                    "path": "path"
-                },
-                {
-                    "type": "target",
-                    "name": "name"
-                }
-            ],
-            "environment": {
-                "a": "b"
-            },
-            "name": "name"
-        }
-        """
-        XCTAssertCodableEqualToJson(subject, expected)
+            settings: .settings(
+                base: ["a": .string("b")],
+                configurations: [
+                    .debug(name: .debug, settings: ["a": .string("debug")], xcconfig: "debug.xcconfig"),
+                    .debug(name: "Beta", settings: ["a": .string("beta")], xcconfig: "beta.xcconfig"),
+                    .debug(name: .release, settings: ["a": .string("release")], xcconfig: "debug.xcconfig"),
+                ]
+            ),
+            coreDataModels: [CoreDataModel("pat", currentVersion: "version")],
+            environment: ["a": "b"]
+        )
+        XCTAssertCodable(subject)
     }
 }

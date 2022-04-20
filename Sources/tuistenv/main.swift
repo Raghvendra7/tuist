@@ -1,5 +1,8 @@
 import Foundation
 import TuistEnvKit
+import TuistSupport
 
-var registry = CommandRegistry()
-registry.run()
+try TuistSupport.Environment.shared.bootstrap()
+LogOutput.bootstrap()
+
+TuistCommand.main()

@@ -5,40 +5,34 @@ import XCTest
 final class TargetDependencyTests: XCTestCase {
     func test_toJSON_when_target() {
         let subject = TargetDependency.target(name: "Target")
-        let expected = """
-        {"name": "Target", "type": "target"}
-        """
-        XCTAssertCodableEqualToJson(subject, expected)
+        XCTAssertCodable(subject)
     }
 
     func test_toJSON_when_project() {
         let subject = TargetDependency.project(target: "target", path: "path")
-        let expected = "{\"path\": \"path\", \"target\": \"target\", \"type\": \"project\"}"
-        XCTAssertCodableEqualToJson(subject, expected)
+        XCTAssertCodable(subject)
     }
 
     func test_toJSON_when_framework() {
         let subject = TargetDependency.framework(path: "/path/framework.framework")
-        let expected = """
-        {"path": "/path/framework.framework", "type": "framework"}
-        """
-        XCTAssertCodableEqualToJson(subject, expected)
+        XCTAssertCodable(subject)
     }
 
     func test_toJSON_when_library() {
-        let subject = TargetDependency.library(path: "/path/library.a", publicHeaders: "/path/headers", swiftModuleMap: "/path/modulemap")
-        let expected = """
-        {"path": "/path/library.a", "public_headers": "/path/headers", "swift_module_map": "/path/modulemap", "type": "library"}
-        """
-        XCTAssertCodableEqualToJson(subject, expected)
+        let subject = TargetDependency.library(
+            path: "/path/library.a",
+            publicHeaders: "/path/headers",
+            swiftModuleMap: "/path/modulemap"
+        )
+        XCTAssertCodable(subject)
     }
 
     func test_sdk_codable() throws {
         // Given
         let sdks: [TargetDependency] = [
-            .sdk(name: "A.framework"),
-            .sdk(name: "B.framework", status: .required),
-            .sdk(name: "c.framework", status: .optional),
+            .sdk(name: "A", type: .framework),
+            .sdk(name: "B", type: .framework, status: .required),
+            .sdk(name: "c", type: .framework, status: .optional),
         ]
 
         // When
@@ -49,9 +43,11 @@ final class TargetDependencyTests: XCTestCase {
         XCTAssertEqual(decoded, sdks)
     }
 
-    func test_cocoapods_codable() throws {
+    func test_xcframework_codable() {
         // Given
-        let subject = TargetDependency.cocoapods(path: "./path")
+        let subject: [TargetDependency] = [
+            .xcframework(path: "/path/framework.xcframework"),
+        ]
 
         // Then
         XCTAssertCodable(subject)

@@ -1,23 +1,17 @@
-import Basic
+import ArgumentParser
 import Foundation
-import SPMUtility
-import TuistCore
+import TSCBasic
+import TuistSupport
 
-class VersionCommand: NSObject, Command {
-    // MARK: - Command
-
-    static let command = "envversion"
-    static let overview = "Outputs the current version of tuist env."
-
-    // MARK: - Init
-
-    required init(parser: ArgumentParser) {
-        parser.add(subparser: VersionCommand.command, overview: VersionCommand.overview)
+struct VersionCommand: ParsableCommand {
+    static var configuration: CommandConfiguration {
+        CommandConfiguration(
+            commandName: "envversion",
+            abstract: "Outputs the current version of tuist env."
+        )
     }
 
-    // MARK: - Command
-
-    func run(with _: ArgumentParser.Result) {
-        Printer.shared.print(Constants.version)
+    func run() throws {
+        try VersionService().run()
     }
 }

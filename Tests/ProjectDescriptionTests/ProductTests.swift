@@ -1,5 +1,5 @@
 import Foundation
-import TuistCoreTesting
+import TuistSupportTesting
 import XCTest
 
 @testable import ProjectDescription
@@ -12,5 +12,6 @@ final class ProductTests: XCTestCase {
         XCTAssertCodableEqualToJson([Product.framework], "[\"framework\"]")
         XCTAssertCodableEqualToJson([Product.unitTests], "[\"unit_tests\"]")
         XCTAssertCodableEqualToJson([Product.uiTests], "[\"ui_tests\"]")
+        XCTAssertCodableEqualToJson([Product.appClip], "[\"appClip\"]")
     }
 }

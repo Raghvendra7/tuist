@@ -1,0 +1,5 @@
+query Invitation($token: String!) {
+  invitation(token: $token) {
+    ...PendingInvitation
+  }
+}

@@ -1,20 +1,18 @@
-import Basic
 import Foundation
+import GraphViz
+import TSCBasic
 import TuistGenerator
+import TuistGraph
+import TuistKit
 
-final class MockDotGraphGenerator: DotGraphGenerating {
-    var generateProjectArgs: [AbsolutePath] = []
-    var generateWorkspaceArgs: [AbsolutePath] = []
-    var generateProjectStub: String = ""
-    var generateWorkspaceStub: String = ""
-
-    func generateProject(at path: AbsolutePath) throws -> String {
-        generateProjectArgs.append(path)
-        return generateProjectStub
-    }
-
-    func generateWorkspace(at path: AbsolutePath) throws -> String {
-        generateWorkspaceArgs.append(path)
-        return generateWorkspaceStub
+final class MockGraphToGraphVizMapper: GraphToGraphVizMapping {
+    var stubMap: GraphViz.Graph?
+    func map(
+        graph _: TuistGraph.Graph,
+        skipTestTargets _: Bool,
+        skipExternalDependencies _: Bool,
+        targetsToFilter _: [String]
+    ) -> GraphViz.Graph {
+        stubMap ?? GraphViz.Graph()
     }
 }

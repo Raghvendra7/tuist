@@ -1,85 +1,70 @@
-import Basic
+import ArgumentParser
 import Foundation
-import SPMUtility
-import TuistCore
-import TuistGenerator
 
-class GenerateCommand: NSObject, Command {
-    // MARK: - Static
+struct GenerateCommand: AsyncParsableCommand, HasTrackableParameters {
+    static var analyticsDelegate: TrackableParametersDelegate?
 
-    static let command = "generate"
-    static let overview = "Generates an Xcode workspace to start working on the project."
-
-    // MARK: - Attributes
-
-    private let generator: Generating
-    private let manifestLoader: GraphManifestLoading
-    private let clock: Clock
-    let pathArgument: OptionArgument<String>
-    let projectOnlyArgument: OptionArgument<Bool>
-
-    // MARK: - Init
-
-    required convenience init(parser: ArgumentParser) {
-        let system = System()
-        let resourceLocator = ResourceLocator()
-        let manifestLoader = GraphManifestLoader(system: system,
-                                                 resourceLocator: resourceLocator)
-        let manifestTargetGenerator = ManifestTargetGenerator(manifestLoader: manifestLoader,
-                                                              resourceLocator: resourceLocator)
-        let manifestLinter = ManifestLinter()
-        let modelLoader = GeneratorModelLoader(manifestLoader: manifestLoader,
-                                               manifestLinter: manifestLinter,
-                                               manifestTargetGenerator: manifestTargetGenerator)
-        let generator = Generator(system: system,
-                                  modelLoader: modelLoader)
-        self.init(parser: parser,
-                  generator: generator,
-                  manifestLoader: manifestLoader,
-                  clock: WallClock())
+    static var configuration: CommandConfiguration {
+        CommandConfiguration(
+            commandName: "generate",
+            abstract: "Generates an Xcode workspace to start working on the project.",
+            subcommands: []
+        )
     }
 
-    init(parser: ArgumentParser,
-         generator: Generating,
-         manifestLoader: GraphManifestLoading,
-         clock: Clock) {
-        let subParser = parser.add(subparser: GenerateCommand.command, overview: GenerateCommand.overview)
-        self.generator = generator
-        self.manifestLoader = manifestLoader
-        self.clock = clock
+    @Option(
+        name: .shortAndLong,
+        help: "The path to the directory that contains the definition of the project.",
+        completion: .directory
+    )
+    var path: String?
 
-        pathArgument = subParser.add(option: "--path",
-                                     shortName: "-p",
-                                     kind: String.self,
-                                     usage: "The path where the project will be generated.",
-                                     completion: .filename)
+    @Argument(help: """
+    A list of targets to focus on. \
+    Other targets will be linked as binaries if possible. \
+    If no target is specified, all the project targets will be generated (except external ones, such as Swift packages).
+    """)
+    var sources: [String] = []
 
-        projectOnlyArgument = subParser.add(option: "--project-only",
-                                            kind: Bool.self,
-                                            usage: "Only generate the local project (without generating its dependencies).")
-    }
+    @Flag(
+        name: .shortAndLong,
+        help: "Don't open the project after generating it."
+    )
+    var noOpen: Bool = false
 
-    func run(with arguments: ArgumentParser.Result) throws {
-        let timer = clock.startTimer()
-        let path = self.path(arguments: arguments)
-        let projectOnly = arguments.get(projectOnlyArgument) ?? false
+    @Flag(
+        name: [.customShort("x"), .long],
+        help: "When passed it uses xcframeworks (simulator and device) from the cache instead of frameworks (only simulator)."
+    )
+    var xcframeworks: Bool = false
 
-        _ = try generator.generate(at: path,
-                                   manifestLoader: manifestLoader,
-                                   projectOnly: projectOnly)
+    @Option(
+        name: [.customShort("P"), .long],
+        help: "The name of the cache profile to be used when focusing on the target."
+    )
+    var profile: String?
 
-        let time = String(format: "%.3f", timer.stop())
-        Printer.shared.print(success: "Project generated.")
-        Printer.shared.print("Total time taken: \(time)s", color: .white)
-    }
+    @Flag(
+        name: [.customLong("no-cache")],
+        help: "Ignore cached targets, and use their sources instead."
+    )
+    var ignoreCache: Bool = false
 
-    // MARK: - Fileprivate
+    func runAsync() async throws {
+        GenerateCommand.analyticsDelegate?.willRun(withParameters: [
+            "no_open": String(noOpen),
+            "xcframeworks": String(xcframeworks),
+            "no_cache": String(ignoreCache),
+            "n_targets": String(sources.count),
+        ])
 
-    private func path(arguments: ArgumentParser.Result) -> AbsolutePath {
-        if let path = arguments.get(pathArgument) {
-            return AbsolutePath(path, relativeTo: FileHandler.shared.currentPath)
-        } else {
-            return FileHandler.shared.currentPath
-        }
+        try await GenerateService().run(
+            path: path,
+            sources: Set(sources),
+            noOpen: noOpen,
+            xcframeworks: xcframeworks,
+            profile: profile,
+            ignoreCache: ignoreCache
+        )
     }
 }

@@ -1,13 +1,21 @@
 {
-  "editor.formatOnSave": true,
-  "[jsx]": {
-    "editor.formatOnSave": true
+  "editor.formatOnSave": false,
+  "[yml]": {
+    "editor.formatOnSave": false
   },
-  // Enable per-language
   "[javascript]": {
     "editor.formatOnSave": true
   },
+  "[javascriptreact]": {
+    "editor.formatOnSave": true
+  },
+  "[json]": {
+    "editor.formatOnSave": true
+  },
   "[typescript]": {
+    "editor.formatOnSave": true
+  },
+  "[typescriptreact]": {
     "editor.formatOnSave": true
   },
   "[ruby]": {
@@ -18,5 +26,12 @@
     "**/.git": true,
     "**/node_modules": true,
     "**/.DS_Store": true
-  }
+  },
+  "spellright.language": [
+    "en"
+  ],
+  "spellright.documentTypes": [
+    "latex",
+    "plaintext"
+  ]
 }

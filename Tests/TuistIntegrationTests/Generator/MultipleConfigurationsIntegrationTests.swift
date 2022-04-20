@@ -1,46 +1,43 @@
-import Basic
+import TSCBasic
+import TuistCore
+import TuistGraph
+import TuistGraphTesting
+import TuistLoaderTesting
 import XcodeProj
 import XCTest
-@testable import TuistCore
-@testable import TuistCoreTesting
 @testable import TuistGenerator
+@testable import TuistSupport
+@testable import TuistSupportTesting
 
-final class MultipleConfigurationsIntegrationTests: XCTestCase {
-    private var fileHandler: MockFileHandler!
-    private var path: AbsolutePath {
-        return fileHandler.currentPath
-    }
-
+final class MultipleConfigurationsIntegrationTests: TuistUnitTestCase {
     override func setUp() {
         super.setUp()
-        mockEnvironment()
-        fileHandler = sharedMockFileHandler()
-
         do {
+            system.swiftVersionStub = { "5.2" }
+            xcodeController.selectedVersionStub = .success("11.0.0")
             try setupTestProject()
         } catch {
             XCTFail(error.localizedDescription)
         }
     }
 
-    override func tearDown() {
-        fileHandler = nil
-    }
-
     func testGenerateThrowsLintingErrorWhenConfigurationsAreEmpty() throws {
         // Given
-        let modelLoader = createModelLoader(projectSettings: Settings(configurations: [:]),
-                                            targetSettings: nil)
-        let subject = Generator(modelLoader: modelLoader)
+        let projectSettings = Settings(configurations: [:])
+        let targetSettings: Settings? = nil
 
         // When / Then
-        XCTAssertThrowsError(try subject.generateWorkspace(at: path, workspaceFiles: []))
+        XCTAssertThrowsError(
+            try generateWorkspace(projectSettings: projectSettings, targetSettings: targetSettings)
+        )
     }
 
     func testGenerateWhenSingleDebugConfigurationInProject() throws {
         // Given
-        let projectSettings = Settings(base: ["A": "A"],
-                                       configurations: [.debug: nil])
+        let projectSettings = Settings(
+            base: ["A": "A"],
+            configurations: [.debug: nil]
+        )
 
         // When
         try generateWorkspace(projectSettings: projectSettings, targetSettings: nil)
@@ -59,8 +56,10 @@ final class MultipleConfigurationsIntegrationTests: XCTestCase {
         A=A_XCCONFIG
         B=B_XCCONFIG
         """)
-        let debugConfiguration = Configuration(settings: ["A": "A", "C": "C"],
-                                               xcconfig: debugFilePath)
+        let debugConfiguration = Configuration(
+            settings: ["A": "A", "C": "C"],
+            xcconfig: debugFilePath
+        )
         let projectSettings = Settings(configurations: [.debug: debugConfiguration])
 
         // When
@@ -79,8 +78,10 @@ final class MultipleConfigurationsIntegrationTests: XCTestCase {
     func testGenerateWhenConfigurationSettingsOverrideBase() throws {
         // Given
         let debugConfiguration = Configuration(settings: ["A": "A", "C": "C"])
-        let projectSettings = Settings(base: ["A": "A_BASE", "B": "B_BASE"],
-                                       configurations: [.debug: debugConfiguration])
+        let projectSettings = Settings(
+            base: ["A": "A_BASE", "B": "B_BASE"],
+            configurations: [.debug: debugConfiguration]
+        )
 
         // When
         try generateWorkspace(projectSettings: projectSettings, targetSettings: nil)
@@ -98,9 +99,13 @@ final class MultipleConfigurationsIntegrationTests: XCTestCase {
     func testGenerateWhenBuildConfigurationWithCustomName() throws {
         // Given
         let customConfiguration = Configuration(settings: ["A": "A", "C": "C"])
-        let projectSettings = Settings(base: ["A": "A_BASE", "B": "B_BASE"],
-                                       configurations: [.debug("Custom"): customConfiguration,
-                                                        .release: nil])
+        let projectSettings = Settings(
+            base: ["A": "A_BASE", "B": "B_BASE"],
+            configurations: [
+                .debug("Custom"): customConfiguration,
+                .release: nil,
+            ]
+        )
 
         // When
         try generateWorkspace(projectSettings: projectSettings, targetSettings: nil)
@@ -126,8 +131,10 @@ final class MultipleConfigurationsIntegrationTests: XCTestCase {
         A=A_XCCONFIG
         B=B_XCCONFIG
         """)
-        let debugConfiguration = Configuration(settings: ["A": "A", "C": "C"],
-                                               xcconfig: debugFilePath)
+        let debugConfiguration = Configuration(
+            settings: ["A": "A", "C": "C"],
+            xcconfig: debugFilePath
+        )
         let projectSettings = Settings(configurations: [.debug: nil])
         let targetSettings = Settings(configurations: [.debug: debugConfiguration])
 
@@ -146,18 +153,26 @@ final class MultipleConfigurationsIntegrationTests: XCTestCase {
 
     func testGenerateWhenMultipleConfigurations() throws {
         // Given
-        let projectDebugConfiguration = Configuration(settings: ["A": "A_PROJECT_DEBUG",
-                                                                 "B": "B_PROJECT_DEBUG"])
-        let projectReleaseConfiguration = Configuration(settings: ["A": "A_PROJECT_RELEASE",
-                                                                   "C": "C_PROJECT_RELEASE"])
-        let projectSettings = Settings(configurations: [.debug: projectDebugConfiguration,
-                                                        .release("ProjectRelease"): projectReleaseConfiguration])
+        let projectDebugConfiguration = Configuration(settings: [
+            "A": "A_PROJECT_DEBUG",
+            "B": "B_PROJECT_DEBUG",
+        ])
+        let projectReleaseConfiguration = Configuration(settings: [
+            "A": "A_PROJECT_RELEASE",
+            "C": "C_PROJECT_RELEASE",
+        ])
+        let projectSettings = Settings(configurations: [
+            .debug: projectDebugConfiguration,
+            .release("ProjectRelease"): projectReleaseConfiguration,
+        ])
 
         let targetDebugConfiguration = Configuration(settings: ["B": "B_TARGET_DEBUG"])
         let targetStagingConfiguration = Configuration(settings: ["B": "B_TARGET_STAGING"])
 
-        let targetSettings = Settings(configurations: [.debug: targetDebugConfiguration,
-                                                       .release("Staging"): targetStagingConfiguration])
+        let targetSettings = Settings(configurations: [
+            .debug: targetDebugConfiguration,
+            .release("Staging"): targetStagingConfiguration,
+        ])
 
         // When
         try generateWorkspace(projectSettings: projectSettings, targetSettings: targetSettings)
@@ -201,20 +216,28 @@ final class MultipleConfigurationsIntegrationTests: XCTestCase {
         F=F_PROJECT_XCCONFIG
         PROJECT_XCCONFIG=YES
         """)
-        let projectDebugConfiguration = Configuration(settings: ["C": "C_PROJECT",
-                                                                 "D": "D_PROJECT",
-                                                                 "E": "E_PROJECT",
-                                                                 "F": "F_PROJECT",
-                                                                 "PROJECT": "YES"],
-                                                      xcconfig: projectDebugFilePath)
+        let projectDebugConfiguration = Configuration(
+            settings: [
+                "C": "C_PROJECT",
+                "D": "D_PROJECT",
+                "E": "E_PROJECT",
+                "F": "F_PROJECT",
+                "PROJECT": "YES",
+            ],
+            xcconfig: projectDebugFilePath
+        )
 
-        let projectSettings = Settings(base: ["B": "B_PROJECT_BASE",
-                                              "C": "C_PROJECT_BASE",
-                                              "D": "D_PROJECT_BASE",
-                                              "E": "E_PROJECT_BASE",
-                                              "F": "F_PROJECT_BASE",
-                                              "PROJECT_BASE": "YES"],
-                                       configurations: [.debug: projectDebugConfiguration])
+        let projectSettings = Settings(
+            base: [
+                "B": "B_PROJECT_BASE",
+                "C": "C_PROJECT_BASE",
+                "D": "D_PROJECT_BASE",
+                "E": "E_PROJECT_BASE",
+                "F": "F_PROJECT_BASE",
+                "PROJECT_BASE": "YES",
+            ],
+            configurations: [.debug: projectDebugConfiguration]
+        )
 
         let targetDebugFilePath = try createFile(path: "Configs/target_debug.xcconfig", content: """
         D=D_TARGET_XCCONFIG
@@ -223,13 +246,21 @@ final class MultipleConfigurationsIntegrationTests: XCTestCase {
         TARGET_XCCONFIG=YES
         """)
 
-        let targetDebugConfiguration = Configuration(settings: ["F": "F_TARGET",
-                                                                "TARGET": "YES"],
-                                                     xcconfig: targetDebugFilePath)
-        let targetSettings = Settings(base: ["E": "E_TARGET_BASE",
-                                             "F": "E_TARGET_BASE",
-                                             "TARGET_BASE": "YES"],
-                                      configurations: [.debug: targetDebugConfiguration])
+        let targetDebugConfiguration = Configuration(
+            settings: [
+                "F": "F_TARGET",
+                "TARGET": "YES",
+            ],
+            xcconfig: targetDebugFilePath
+        )
+        let targetSettings = Settings(
+            base: [
+                "E": "E_TARGET_BASE",
+                "F": "E_TARGET_BASE",
+                "TARGET_BASE": "YES",
+            ],
+            configurations: [.debug: targetDebugConfiguration]
+        )
 
         // When
         try generateWorkspace(projectSettings: projectSettings, targetSettings: targetSettings)
@@ -255,16 +286,22 @@ final class MultipleConfigurationsIntegrationTests: XCTestCase {
 
     func testGenerateWhenCustomConfigurations() throws {
         // Given
-        let projectDebugConfiguration = Configuration(settings: ["A": "A_PROJECT_DEBUG",
-                                                                 "B": "B_PROJECT_DEBUG"])
-        let projectCustomDebugConfiguration = Configuration(settings: ["A": "A_PROJECT_RELEASE",
-                                                                       "C": "C_PROJECT_RELEASE"])
+        let projectDebugConfiguration = Configuration(settings: [
+            "A": "A_PROJECT_DEBUG",
+            "B": "B_PROJECT_DEBUG",
+        ])
+        let projectCustomDebugConfiguration = Configuration(settings: [
+            "A": "A_PROJECT_RELEASE",
+            "C": "C_PROJECT_RELEASE",
+        ])
         let projectReleaseConfiguration = Configuration(settings: [:])
         let projectCustomReleaseConfiguration = Configuration(settings: ["E": "E_PROJECT_RELEASE"])
-        let projectSettings = Settings(configurations: [.debug: projectDebugConfiguration,
-                                                        .debug("CustomDebug"): projectCustomDebugConfiguration,
-                                                        .release: projectReleaseConfiguration,
-                                                        .release("CustomRelease"): projectCustomReleaseConfiguration])
+        let projectSettings = Settings(configurations: [
+            .debug: projectDebugConfiguration,
+            .debug("CustomDebug"): projectCustomDebugConfiguration,
+            .release: projectReleaseConfiguration,
+            .release("CustomRelease"): projectCustomReleaseConfiguration,
+        ])
 
         // When
         try generateWorkspace(projectSettings: projectSettings, targetSettings: nil)
@@ -295,87 +332,136 @@ final class MultipleConfigurationsIntegrationTests: XCTestCase {
     // MARK: - Helpers
 
     private func generateWorkspace(projectSettings: Settings, targetSettings: Settings?) throws {
-        let modelLoader = createModelLoader(projectSettings: projectSettings, targetSettings: targetSettings)
-        let subject = Generator(modelLoader: modelLoader)
-        _ = try subject.generateWorkspace(at: path, workspaceFiles: [])
+        let models = try createModels(projectSettings: projectSettings, targetSettings: targetSettings)
+        let subject = DescriptorGenerator()
+        let writer = XcodeProjWriter()
+        let linter = GraphLinter()
+        let graphLoader = GraphLoader()
+
+        let graph = try graphLoader.loadWorkspace(workspace: models.workspace, projects: models.projects)
+        let graphTraverser = GraphTraverser(graph: graph)
+        try linter.lint(graphTraverser: graphTraverser).printAndThrowIfNeeded()
+        let descriptor = try subject.generateWorkspace(graphTraverser: graphTraverser)
+        try writer.write(workspace: descriptor)
     }
 
     private func setupTestProject() throws {
-        try fileHandler.createFolders(["App/Sources"])
+        try createFolders(["App/Sources"])
     }
 
     @discardableResult
     private func createFile(path relativePath: String, content: String) throws -> AbsolutePath {
-        let absolutePath = path.appending(RelativePath(relativePath))
-        try fileHandler.touch(absolutePath)
+        let temporaryPath = try temporaryPath()
+        let absolutePath = temporaryPath.appending(RelativePath(relativePath))
+        try FileHandler.shared.touch(absolutePath)
         try content.data(using: .utf8)!.write(to: URL(fileURLWithPath: absolutePath.pathString))
         return absolutePath
     }
 
-    private func createModelLoader(projectSettings: Settings, targetSettings: Settings?) -> GeneratorModelLoading {
-        let modelLoader = MockGeneratorModelLoader(basePath: path)
-        let appTarget = createAppTarget(settings: targetSettings)
-        let project = createProject(path: pathTo("App"), settings: projectSettings, targets: [appTarget], schemes: [])
-        let workspace = createWorkspace(projects: ["App"])
-        let tuistConfig = createTuistConfig()
-
-        modelLoader.mockProject("App") { _ in project }
-        modelLoader.mockWorkspace { _ in workspace }
-        modelLoader.mockTuistConfig { _ in tuistConfig }
-
-        return modelLoader
+    private func createModels(projectSettings: Settings, targetSettings: Settings?) throws -> WorkspaceWithProjects {
+        let temporaryPath = try temporaryPath()
+        let appTarget = try createAppTarget(settings: targetSettings)
+        let project = createProject(
+            path: try pathTo("App"),
+            settings: projectSettings,
+            targets: [appTarget],
+            schemes: []
+        )
+        let workspace = try createWorkspace(path: temporaryPath, projects: ["App"])
+        return WorkspaceWithProjects(workspace: workspace, projects: [project])
     }
 
-    private func createTuistConfig() -> TuistConfig {
-        return TuistConfig(compatibleXcodeVersions: .all,
-                           generationOptions: [])
+    private func createConfig() -> Config {
+        Config(
+            compatibleXcodeVersions: .all,
+            cloud: nil,
+            cache: .default,
+            swiftVersion: nil,
+            plugins: [],
+            generationOptions: .test(),
+            path: nil
+        )
     }
 
-    private func createWorkspace(projects: [String]) -> Workspace {
-        return Workspace(name: "Workspace", projects: projects.map { pathTo($0) })
+    private func createWorkspace(path: AbsolutePath, projects: [String]) throws -> Workspace {
+        Workspace(
+            path: path,
+            xcWorkspacePath: path.appending(component: "Workspace.xcworkspace"),
+            name: "Workspace",
+            projects: try projects.map { try pathTo($0) },
+            generationOptions: .test(enableAutomaticXcodeSchemes: nil)
+        )
     }
 
-    private func createProject(path: AbsolutePath, settings: Settings, targets: [Target], schemes: [Scheme]) -> Project {
-        return Project(path: path,
-                       name: "App",
-                       settings: settings,
-                       filesGroup: .group(name: "Project"),
-                       targets: targets,
-                       schemes: schemes)
+    private func createProject(
+        path: AbsolutePath,
+        settings: Settings,
+        targets: [Target],
+        packages: [Package] = [],
+        schemes: [Scheme]
+    ) -> Project {
+        Project(
+            path: path,
+            sourceRootPath: path,
+            xcodeProjPath: path.appending(component: "App.xcodeproj"),
+            name: "App",
+            organizationName: nil,
+            developmentRegion: nil,
+            options: .test(),
+            settings: settings,
+            filesGroup: .group(name: "Project"),
+            targets: targets,
+            packages: packages,
+            schemes: schemes,
+            ideTemplateMacros: nil,
+            additionalFiles: [],
+            resourceSynthesizers: [],
+            lastUpgradeCheck: nil,
+            isExternal: false
+        )
     }
 
-    private func createAppTarget(settings: Settings?) -> Target {
-        return Target(name: "AppTarget",
-                      platform: .iOS,
-                      product: .app,
-                      productName: "AppTarget",
-                      bundleId: "test.bundle",
-                      settings: settings,
-                      sources: [(path: pathTo("App/Sources/AppDelegate.swift"), compilerFlags: nil)],
-                      filesGroup: .group(name: "ProjectGroup"))
+    private func createAppTarget(settings: Settings?) throws -> Target {
+        Target(
+            name: "AppTarget",
+            platform: .iOS,
+            product: .app,
+            productName: "AppTarget",
+            bundleId: "test.bundle",
+            settings: settings,
+            sources: [SourceFile(path: try pathTo("App/Sources/AppDelegate.swift"))],
+            filesGroup: .group(name: "ProjectGroup")
+        )
     }
 
-    private func pathTo(_ relativePath: String) -> AbsolutePath {
-        return path.appending(RelativePath(relativePath))
+    private func pathTo(_ relativePath: String) throws -> AbsolutePath {
+        let temporaryPath = try temporaryPath()
+        return temporaryPath.appending(RelativePath(relativePath))
     }
 
     private func extractWorkspaceSettings(configuration: String) throws -> ExtractedBuildSettings {
-        return try extractBuildSettings(path: .workspace(path: path.appending(component: "Workspace.xcworkspace").pathString,
-                                                         scheme: "AppTarget",
-                                                         configuration: configuration))
+        let temporaryPath = try temporaryPath()
+        return try extractBuildSettings(path: .workspace(
+            path: temporaryPath.appending(component: "Workspace.xcworkspace").pathString,
+            scheme: "AppTarget",
+            configuration: configuration
+        ))
     }
 
     private func loadXcodeProj(_ relativePath: String) throws -> XcodeProj {
-        let appProjectPath = path.appending(RelativePath(relativePath))
+        let temporaryPath = try temporaryPath()
+        let appProjectPath = temporaryPath.appending(RelativePath(relativePath))
         return try XcodeProj(pathString: appProjectPath.pathString)
     }
 
     // MARK: - Assertions
 
-    private func assertTarget(_ target: String = "AppTarget",
-                              expectedConfigurations: Set<String>,
-                              file: StaticString = #file,
-                              line: UInt = #line) {
+    private func assertTarget(
+        _ target: String = "AppTarget",
+        expectedConfigurations: Set<String>,
+        file: StaticString = #file,
+        line: UInt = #line
+    ) {
         let proj: XcodeProj
         do {
             proj = try loadXcodeProj("App/App.xcodeproj")
@@ -389,13 +475,15 @@ final class MultipleConfigurationsIntegrationTests: XCTestCase {
             return
         }
 
-        let configurationNames = Set(nativeTarget.buildConfigurationList?.buildConfigurations.map { $0.name } ?? [])
+        let configurationNames = Set(nativeTarget.buildConfigurationList?.buildConfigurations.map(\.name) ?? [])
         XCTAssertEqual(configurationNames, expectedConfigurations, file: file, line: line)
     }
 
-    private func assertProject(expectedConfigurations: Set<String>,
-                               file: StaticString = #file,
-                               line: UInt = #line) {
+    private func assertProject(
+        expectedConfigurations: Set<String>,
+        file: StaticString = #file,
+        line: UInt = #line
+    ) {
         let proj: XcodeProj
         let rootProject: PBXProject?
         do {
@@ -406,7 +494,7 @@ final class MultipleConfigurationsIntegrationTests: XCTestCase {
             return
         }
 
-        let configurationNames = Set(rootProject?.buildConfigurationList?.buildConfigurations.map { $0.name } ?? [])
+        let configurationNames = Set(rootProject?.buildConfigurationList?.buildConfigurations.map(\.name) ?? [])
         XCTAssertEqual(configurationNames, expectedConfigurations, file: file, line: line)
     }
 }
@@ -427,7 +515,7 @@ private func extractBuildSettings(path: XcodePath) throws -> ExtractedBuildSetti
         arguments.append(scheme)
     }
 
-    let rawBuildSettings = try Basic.Process.checkNonZeroExit(arguments: arguments)
+    let rawBuildSettings = try TSCBasic.Process.checkNonZeroExit(arguments: arguments)
     return ExtractedBuildSettings(rawBuildSettings: rawBuildSettings)
 }
 
@@ -435,19 +523,19 @@ private struct ExtractedBuildSettings {
     let rawBuildSettings: String
 
     func contains(_ key: String, _ value: String) -> Bool {
-        return contains((key, value))
+        contains((key, value))
     }
 
     func containsKey(_ key: String) -> Bool {
-        return rawBuildSettings.contains(" \(key)) = ")
+        rawBuildSettings.contains(" \(key)) = ")
     }
 
     func contains(_ pair: (key: String, value: String)) -> Bool {
-        return rawBuildSettings.contains("\(pair.key) = \(pair.value)")
+        rawBuildSettings.contains("\(pair.key) = \(pair.value)")
     }
 
     func contains(settings: [String: String]) -> Bool {
-        return settings.allSatisfy { contains($0) }
+        settings.allSatisfy { contains($0) }
     }
 }
 

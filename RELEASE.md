@@ -1,18 +1,18 @@
 # Release
 
-This document describes the process of releasing new versions of tuist.
+This document describes the process of releasing new versions of Tuist.
 
-1.  First make sure you are in master and the latest changes are pulled: `git pull origin master`
-2.  Ensure that the project is in a releasable state by running the tests: `swift test` and `bundle exec rake features`.
-3.  Determine the new version:
-
-- Major if there's been a breaking change.
-- Minor by default.
-- Patch if it's a hotfix release.
-
-4.  Update the version in the `Constants.swift` file.
-5.  Update the `CHANGELOG.md` to include the version section.
-6.  Commit the changes and tag the commit with the version `git tag x.y.z`.
-7.  Package the release running `bundle exec rake package`.
-8.  Push the changes to remote and create a new release on GitHub including the changelog. Attach all the files in the `build/` directory.
-9.  Deploy the documentation website to [Netlify](https://app.netlify.com/sites/peaceful-fermat-c0d5d7/deploys).
+1. Determine the new version:
+    - Major if there's been a breaking change (`+.0.0`).
+    - Minor by default (`x.+.0`).
+    - Patch if it's a hotfix release (`x.x.+`).
+    - Reach out to the core team if you have questions.
+2. Select the [Tuist Release](https://github.com/tuist/tuist/actions/workflows/release.yml) action in the GitHub `Actions` tab
+3. Select `Run workflow`
+4. Input the version from #1 into the action prompt and provide a title
+5. Run the workflow
+6. Wait for release workflow to finish
+7. Merge the PR created by the workflow
+8. Clone [ProjectAutomation](https://github.com/tuist/ProjectAutomation) repository and run `./release.sh x.y.z`
+9. Clone [ProjectDescription](https://github.com/tuist/ProjectDescription) repository and run `./release.sh x.y.z`
+10. Once merged verify with `tuist update`
